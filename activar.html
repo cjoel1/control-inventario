@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generador de Códigos — Control de Inventario</title>
+  <link rel="icon" href="icons/icono.svg" type="image/svg+xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      margin: 0; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 16px; padding: 32px;
+      width: 100%; max-width: 520px;
+      box-shadow: 0 24px 48px rgba(0,0,0,.5);
+    }
+    h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 4px; color: #f1f5f9; }
+    .sub { color: #94a3b8; font-size: .9rem; margin: 0 0 24px; }
+    .campo { margin-bottom: 18px; }
+    label { display: block; font-size: .8rem; font-weight: 600; color: #64748b;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    input, select {
+      width: 100%; background: #0f172a; border: 1.5px solid #334155;
+      border-radius: 8px; padding: 11px 13px; color: #f1f5f9;
+      font-size: 1rem; font-family: inherit; outline: none;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+    input[readonly] { color: #38bdf8; font-family: monospace; letter-spacing: .1em; cursor: pointer; }
+    .tabs { display: flex; gap: 0; border-radius: 8px; overflow: hidden;
+      border: 1px solid #334155; margin-bottom: 20px; }
+    .tab { flex: 1; padding: 10px; background: transparent; border: none;
+      color: #64748b; font-family: inherit; font-size: .9rem; font-weight: 600;
+      cursor: pointer; transition: background .15s, color .15s; }
+    .tab.activo { background: #1d4ed8; color: #fff; }
+    .btn {
+      width: 100%; padding: 13px; background: #1d4ed8; border: none;
+      border-radius: 8px; color: #fff; font-size: 1rem; font-weight: 600;
+      font-family: inherit; cursor: pointer; margin-bottom: 12px;
+      transition: background .15s;
+    }
+    .btn:hover { background: #2563eb; }
+    .btn-sec { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
+    .btn-sec:hover { background: #334155; }
+    .resultado { margin-top: 16px; display: none; }
+    .resultado.visible { display: block; }
+    .res-lbl { font-size: .78rem; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .res-val {
+      background: #0f172a; border: 1.5px solid #334155; border-radius: 8px;
+      padding: 14px 16px; font-size: 1.15rem; font-family: monospace;
+      letter-spacing: .14em; color: #38bdf8; word-break: break-all;
+      cursor: pointer; user-select: all;
+    }
+    .res-val:hover { border-color: #38bdf8; }
+    .copy-tip { font-size: .78rem; color: #475569; margin-top: 6px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: .72rem; font-weight: 700; }
+    .tag-perm { background: #166534; color: #86efac; }
+    .tag-beta { background: #1e3a5f; color: #93c5fd; }
+    .pass-overlay {
+      position: fixed; inset: 0; background: #070d1a;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+    }
+    .pass-card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 16px;
+      padding: 32px; max-width: 360px; width: 100%;
+    }
+    .pass-card h2 { font-size: 1.1rem; font-weight: 700; color: #f1f5f9; margin: 0 0 8px; }
+    .pass-card p { color: #64748b; font-size: .88rem; margin: 0 0 20px; }
+    .pass-input {
+      width: 100%; background: #0f172a; border: 1.5px solid #334155; border-radius: 8px;
+      padding: 12px 13px; color: #f1f5f9; font-size: 1rem; font-family: inherit;
+      outline: none; margin-bottom: 14px;
+    }
+    .pass-input:focus { border-color: #3b82f6; }
+    .pass-error { color: #f87171; font-size: .85rem; margin-bottom: 10px; min-height: 20px; }
+    #panelPerm, #panelBeta { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- Password overlay -->
+<div class="pass-overlay" id="passOverlay">
+  <div class="pass-card">
+    <h2>🔒 Área Restringida</h2>
+    <p>Ingresa la contraseña de administrador para acceder al generador de códigos.</p>
+    <input class="pass-input" type="password" id="passInput" placeholder="Contraseña" autocomplete="current-password">
+    <div class="pass-error" id="passError"></div>
+    <button class="btn" id="passBtn">Entrar</button>
+  </div>
+</div>
+
+<!-- Main panel -->
+<div class="card" id="mainPanel" style="display:none">
+  <h1>Generador de Códigos</h1>
+  <p class="sub">Control de Inventario · Panel de Administración</p>
+
+  <div class="campo">
+    <label>Device ID del usuario</label>
+    <input type="text" id="deviceId" placeholder="Pega aquí el ID del dispositivo del usuario">
+  </div>
+
+  <div class="tabs">
+    <button class="tab activo" data-tab="perm">Permanente</button>
+    <button class="tab" data-tab="beta">Beta / Trial</button>
+  </div>
+
+  <!-- Permanent -->
+  <div id="panelPerm">
+    <p style="color:#94a3b8;font-size:.88rem;margin:0 0 16px">
+      Genera un código permanente vinculado al dispositivo del usuario.
+      <span class="tag tag-perm">Permanente</span>
+    </p>
+    <button class="btn" id="btnGenPerm">Generar código permanente</button>
+  </div>
+
+  <!-- Beta -->
+  <div id="panelBeta">
+    <div class="campo">
+      <label>Duración del período de prueba</label>
+      <select id="betaDias">
+        <option value="30">30 días</option>
+        <option value="45">45 días</option>
+        <option value="60">60 días</option>
+        <option value="90">90 días</option>
+      </select>
+    </div>
+    <p style="color:#94a3b8;font-size:.88rem;margin:0 0 16px">
+      Genera un código de prueba con fecha de expiración incluida.
+      <span class="tag tag-beta">Beta</span>
+    </p>
+    <button class="btn" id="btnGenBeta">Generar código beta</button>
+  </div>
+
+  <div class="resultado" id="resultado">
+    <div class="res-lbl">Código generado (toca para copiar)</div>
+    <div class="res-val" id="resVal" title="Haz clic para copiar"></div>
+    <div class="copy-tip">Haz clic en el código para copiarlo al portapapeles</div>
+  </div>
+</div>
+
+<script type="module">
+  const SECRET = 'SHH-STOCK-2025';
+
+  async function hmacHex(message, secret) {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+
+  function formatCode(hex8) {
+    const clean = hex8.toUpperCase().replace(/[^A-F0-9]/g, '').slice(0, 8);
+    return `${clean.slice(0, 4)}-${clean.slice(4, 8)}`;
+  }
+
+  async function genPermanent(deviceId) {
+    const hex = await hmacHex(deviceId, SECRET);
+    return formatCode(hex);
+  }
+
+  async function genBeta(deviceId, days) {
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + Number(days));
+    const yyyymmdd = expiry.toISOString().slice(0, 10).replace(/-/g, '');
+    const hex = await hmacHex(`${deviceId}|${yyyymmdd}`, SECRET);
+    return `${yyyymmdd}:${formatCode(hex)}`;
+  }
+
+  // Password gate
+  const PASS = 'activar2025';
+  document.getElementById('passBtn').addEventListener('click', () => {
+    const v = document.getElementById('passInput').value;
+    if (v === PASS) {
+      document.getElementById('passOverlay').style.display = 'none';
+      document.getElementById('mainPanel').style.display = 'block';
+      document.getElementById('panelPerm').style.display = 'block';
+    } else {
+      document.getElementById('passError').textContent = 'Contraseña incorrecta.';
+    }
+  });
+  document.getElementById('passInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('passBtn').click();
+  });
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('activo'));
+      tab.classList.add('activo');
+      const which = tab.dataset.tab;
+      document.getElementById('panelPerm').style.display = which === 'perm' ? 'block' : 'none';
+      document.getElementById('panelBeta').style.display = which === 'beta' ? 'block' : 'none';
+      document.getElementById('resultado').classList.remove('visible');
+    });
+  });
+
+  function showCode(code) {
+    const el = document.getElementById('resVal');
+    el.textContent = code;
+    document.getElementById('resultado').classList.add('visible');
+    el.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(code).catch(() => {});
+      el.textContent = '¡Copiado!';
+      setTimeout(() => { el.textContent = code; }, 1500);
+    }, { once: true });
+  }
+
+  document.getElementById('btnGenPerm').addEventListener('click', async () => {
+    const id = document.getElementById('deviceId').value.trim();
+    if (!id) { alert('Ingresa el Device ID del usuario.'); return; }
+    const code = await genPermanent(id);
+    showCode(code);
+  });
+
+  document.getElementById('btnGenBeta').addEventListener('click', async () => {
+    const id = document.getElementById('deviceId').value.trim();
+    if (!id) { alert('Ingresa el Device ID del usuario.'); return; }
+    const dias = document.getElementById('betaDias').value;
+    const code = await genBeta(id, dias);
+    showCode(code);
+  });
+</script>
+</body>
+</html>
