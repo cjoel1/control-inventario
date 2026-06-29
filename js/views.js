@@ -6,6 +6,7 @@ import {
   getState, articulosActivos, articulosArchivados, articulosBajoStock,
   articulosSinStock, articulosPorVencer, articulosVencidos,
   filteredArticulos, filteredMovimientos, calcInventoryValue, topConsumidos,
+  calcDiasRestantes, articulosPorAgotar, generarListaCompra,
   addArticulo, updateArticulo, archiveArticulo, unarchiveArticulo,
   addMovimiento, bulkAjuste, setFiltroArticulos, setFiltroHistorial, resetData
 } from './store.js';
@@ -21,6 +22,10 @@ import {
   getEmpresa, setEmpresa, getPIN, setPIN, removePIN,
   defaultCategories, defaultUnits, markOnboardingDone
 } from './storage.js';
+import {
+  notificacionesHabilitadas, notificacionesSoportadas,
+  activarNotificaciones, desactivarNotificaciones
+} from './notifications.js';
 import {
   fmtFecha, fmtFechaHora, fmtMoneda, escape, stockClass,
   expiryClass, expiryDaysLeft, debounce, fileToBase64, resizeImage, parseCsvLine
@@ -84,6 +89,33 @@ export function renderInicio(container) {
           <span class="alerta-stock-nombre">${escape(a.name)}</span>
           <span class="alerta-stock-qty">${a.currentStock} ${a.unit} <span style="color:var(--texto-tenue)">(mín. ${a.minStock})</span></span>
         </div>`).join('')}
+    </div>` : '';
+
+  const porAgotar = articulosPorAgotar(30);
+  const pronosticoHtml = porAgotar.length ? `
+    <div class="bloque">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <h2 style="margin:0">${ico('pronostico', 18)} Pronóstico de agotamiento</h2>
+        <a href="#/compras" class="btn btn-sm btn-secundario">${ico('compras', 14)} Ver lista de pedido</a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${porAgotar.slice(0, 6).map(({ art, dias, daily }) => {
+          const urgente = dias <= 7;
+          const proximo = dias <= 14;
+          const color = urgente ? 'var(--rojo)' : proximo ? 'var(--ambar)' : 'var(--texto-suave)';
+          const bg = urgente ? 'var(--rojo-suave)' : proximo ? 'var(--ambar-suave)' : 'var(--superficie-2)';
+          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:${bg}">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escape(art.name)}</div>
+              <div style="font-size:.78rem;color:var(--texto-tenue)">${daily < 1 ? (daily * 7).toFixed(1)+'/sem' : daily.toFixed(1)+'/día'} · Stock: ${art.currentStock} ${art.unit}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-weight:800;font-size:1rem;color:${color}">${dias}d</div>
+              <div style="font-size:.72rem;color:${color}">restantes</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
     </div>` : '';
 
   const topHtml = top.length ? `
@@ -175,6 +207,7 @@ export function renderInicio(container) {
 
       ${alertaVenc}
       ${alertaStockHtml}
+      ${pronosticoHtml}
       ${topHtml}
       ${recientesHtml}
       ${emptyState}
@@ -238,6 +271,7 @@ export function renderArticulos(container) {
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-secundario btn-sm" id="btn-escanear" title="Escanear QR">${ico('escaner', 16)} Escanear</button>
           <button class="btn btn-secundario btn-sm" id="btn-conteo" title="Modo conteo">${ico('conteo', 16)} Conteo</button>
+          <button class="btn btn-secundario btn-sm" id="btn-etiquetas" title="Imprimir etiquetas QR">${ico('qr', 16)} Etiquetas</button>
           <button class="btn btn-primario" id="btn-nuevo">${ico('mas', 18)} Nuevo</button>
         </div>
       </div>
@@ -270,6 +304,7 @@ export function renderArticulos(container) {
   container.querySelector('#btn-nuevo').addEventListener('click', () => modalArticulo(null));
   container.querySelector('#btn-escanear').addEventListener('click', () => modalEscanear());
   container.querySelector('#btn-conteo').addEventListener('click', () => modalConteo());
+  container.querySelector('#btn-etiquetas').addEventListener('click', () => imprimirEtiquetas(filteredArticulos()));
 
   container.querySelector('#busq-art').addEventListener('input', debounce(e => {
     setFiltroArticulos({ busqueda: e.target.value });
@@ -1016,6 +1051,20 @@ export function renderAjustes(container) {
           <button class="btn btn-sm btn-primario" id="btn-set-pin">${ico('candado', 15)} Activar PIN</button>`}
       </div>
 
+      <div class="bloque" id="bloque-notif">
+        <h2>${ico('campanilla', 18)} Notificaciones</h2>
+        <p style="color:var(--texto-suave);margin:4px 0 14px">Recibe alertas cuando el stock sea bajo o haya artículos por vencer.</p>
+        ${!notificacionesSoportadas() ? `<p class="insignia ins-ambar">Tu navegador no soporta notificaciones.</p>` : `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <span id="notif-estado" class="insignia ${notificacionesHabilitadas() ? 'ins-verde' : 'ins-ambar'}">
+            ${notificacionesHabilitadas() ? `${ico('campanilla', 13)} Activas` : `${ico('campanilla', 13)} Inactivas`}
+          </span>
+          ${notificacionesHabilitadas()
+            ? `<button class="btn btn-sm btn-secundario" id="btn-notif-desact">${ico('cerrar', 14)} Desactivar</button>`
+            : `<button class="btn btn-sm btn-primario" id="btn-notif-act">${ico('campanilla', 14)} Activar notificaciones</button>`}
+        </div>`}
+      </div>
+
       <div class="bloque">
         <h2>${ico('archivo', 18)} Artículos archivados <span class="insignia ins-azul" style="margin-left:6px">${archivados.length}</span></h2>
         ${archivados.length ? `
@@ -1137,12 +1186,223 @@ export function renderAjustes(container) {
     removePIN(); toast('PIN desactivado', 'info'); renderAjustes(container);
   });
 
+  container.querySelector('#btn-notif-act')?.addEventListener('click', async () => {
+    const result = await activarNotificaciones();
+    if (result.ok) {
+      toast('Notificaciones activadas', 'exito');
+      renderAjustes(container);
+    } else {
+      toast(result.msg, 'error');
+    }
+  });
+  container.querySelector('#btn-notif-desact')?.addEventListener('click', () => {
+    desactivarNotificaciones();
+    toast('Notificaciones desactivadas', 'info');
+    renderAjustes(container);
+  });
+
   container.querySelectorAll('[data-unarch]').forEach(btn => {
     btn.addEventListener('click', async () => {
       await unarchiveArticulo(btn.dataset.unarch);
       toast('Artículo desarchivado', 'exito'); renderAjustes(container);
     });
   });
+}
+
+// ── COMPRAS ────────────────────────────────────────────────────────────────────
+
+export function renderCompras(container) {
+  const items = generarListaCompra();
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div class="vista">
+        <h1 class="titulo-vista">${ico('compras', 22)} Compras</h1>
+        <p class="subtitulo-vista">Lista de pedido</p>
+        <div class="estado-vacio">
+          <div class="ev-ico" style="background:var(--verde-suave);color:var(--verde)">${ico('check', 30)}</div>
+          <h3>Todo al día</h3>
+          <p>No hay artículos que necesiten reposición. Configura el <strong>stock mínimo</strong> de tus artículos para recibir sugerencias aquí.</p>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // Group by supplier
+  const porProveedor = {};
+  items.forEach(item => {
+    const prov = item.supplier || 'Sin proveedor';
+    if (!porProveedor[prov]) porProveedor[prov] = [];
+    porProveedor[prov].push(item);
+  });
+
+  const itemsHtml = Object.entries(porProveedor).map(([prov, grupo]) => `
+    <div class="bloque">
+      <div class="compra-prov-cab">
+        ${ico('proveedor', 15)} <span>${escape(prov)}</span>
+        <span class="insignia ins-azul">${grupo.length}</span>
+      </div>
+      ${grupo.map(item => `
+        <div class="compra-item" data-id="${item.id}">
+          <div class="compra-info">
+            <div class="compra-nombre">${escape(item.name)}${item.code ? ` <span class="art-codigo">#${escape(item.code)}</span>` : ''}</div>
+            <div class="compra-meta">
+              ${item.motivo === 'bajo'
+                ? `<span class="insignia ins-roja">${ico('alerta', 11)} Stock: ${item.currentStock}/${item.minStock} ${item.unit}</span>`
+                : `<span class="insignia ins-ambar">${ico('pronostico', 11)} Se agota en ~${item.dias}d</span>`}
+              ${item.cost > 0 ? `<span class="insignia ins-azul">${ico('valor', 11)} $${fmtMoneda(item.cost)}/u</span>` : ''}
+            </div>
+          </div>
+          <div class="compra-qty-ctrl">
+            <button class="compra-qty-btn" data-dir="-1" data-id="${item.id}">−</button>
+            <input type="number" class="compra-qty" data-id="${item.id}" value="${item.sugerido}" min="1" step="1">
+            <button class="compra-qty-btn" data-dir="1" data-id="${item.id}">+</button>
+            <span class="compra-unit">${escape(item.unit)}</span>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+
+  container.innerHTML = `
+    <div class="vista" style="padding-bottom:88px">
+      <div class="cab-vista">
+        <div>
+          <h1 class="titulo-vista">${ico('compras', 22)} Compras</h1>
+          <p class="subtitulo-vista">${items.length} artículo${items.length !== 1 ? 's' : ''} para pedir</p>
+        </div>
+      </div>
+      <p style="color:var(--texto-suave);font-size:.88rem;margin:0 0 16px">Artículos con stock bajo o que se agotarán pronto según su historial de consumo. Ajusta las cantidades y genera la orden.</p>
+      ${itemsHtml}
+      <div class="compra-bar">
+        <button class="btn btn-secundario" id="btn-compra-copiar">${ico('compartir', 16)} Copiar lista</button>
+        <button class="btn btn-primario" id="btn-compra-imprimir">${ico('imprimir', 16)} Imprimir orden</button>
+      </div>
+    </div>`;
+
+  // +/- buttons
+  container.addEventListener('click', e => {
+    const btn = e.target.closest('.compra-qty-btn');
+    if (!btn) return;
+    const inp = container.querySelector(`.compra-qty[data-id="${btn.dataset.id}"]`);
+    if (!inp) return;
+    const dir = parseInt(btn.dataset.dir);
+    inp.value = Math.max(1, (parseInt(inp.value) || 1) + dir);
+  });
+
+  container.querySelector('#btn-compra-copiar').addEventListener('click', () => {
+    const lineas = [...container.querySelectorAll('.compra-item')].map(el => {
+      const id = el.dataset.id;
+      const item = items.find(i => i.id === id);
+      const qty = el.querySelector('.compra-qty').value;
+      return `• ${item.name}: ${qty} ${item.unit}${item.supplier ? ` (${item.supplier})` : ''}`;
+    });
+    const texto = `📦 Lista de pedido — ${new Date().toLocaleDateString('es-MX')}\n\n${lineas.join('\n')}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Lista de pedido', text: texto }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(texto)
+        .then(() => toast('Lista copiada al portapapeles', 'exito'))
+        .catch(() => toast('No se pudo copiar', 'error'));
+    }
+  });
+
+  container.querySelector('#btn-compra-imprimir').addEventListener('click', () => {
+    const orden = [...container.querySelectorAll('.compra-item')].map(el => {
+      const id = el.dataset.id;
+      const item = items.find(i => i.id === id);
+      const qty = parseInt(el.querySelector('.compra-qty').value) || 1;
+      return { item, qty };
+    });
+    imprimirOrden(orden);
+  });
+}
+
+function imprimirOrden(orden) {
+  const { nombre } = getEmpresa();
+  const total = orden.reduce((s, { item, qty }) => s + (item.cost || 0) * qty, 0);
+  const filas = orden.map(({ item, qty }) => `
+    <tr>
+      <td>${escape(item.code || '')}</td>
+      <td><strong>${escape(item.name)}</strong></td>
+      <td>${escape(item.category)}</td>
+      <td>${escape(item.supplier || '—')}</td>
+      <td style="text-align:right">${item.currentStock} ${item.unit}</td>
+      <td style="text-align:right;font-weight:700;color:#1d4ed8">${qty} ${item.unit}</td>
+      <td style="text-align:right">${item.cost ? '$' + fmtMoneda(item.cost) : '—'}</td>
+      <td style="text-align:right;font-weight:600">${item.cost ? '$' + fmtMoneda(item.cost * qty) : '—'}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Orden de Pedido — ${escape(nombre)}</title>
+    <style>
+      body{font-family:system-ui,sans-serif;font-size:12px;color:#0f172a;margin:20px}
+      h1{font-size:18px;margin:0 0 2px} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse}
+      th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+      thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+      .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
+      .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px}
+      .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}
+      @media print{body{margin:8mm}}
+    </style></head><body>
+    <h1>Orden de Pedido</h1>
+    <div class="sub">${escape(nombre)} · Generada: ${new Date().toLocaleString('es-MX')} · ${orden.length} artículo${orden.length !== 1 ? 's' : ''}</div>
+    <table>
+      <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Proveedor</th><th>Stock actual</th><th>Cantidad pedida</th><th>Precio unit.</th><th>Subtotal</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${total > 0 ? `<div class="total">Total estimado: $${fmtMoneda(total)}</div>` : ''}
+    <div class="firm">
+      <div class="firm-box">Solicitado por: ___________________________</div>
+      <div class="firm-box">Autorizado por: ___________________________</div>
+      <div class="firm-box">Fecha de entrega esperada: ________________</div>
+    </div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
+// ── Etiquetas QR ──────────────────────────────────────────────────────────────
+
+function imprimirEtiquetas(arts) {
+  if (!arts.length) { toast('No hay artículos para imprimir', 'aviso'); return; }
+  const { nombre } = getEmpresa();
+
+  const etiquetas = arts.map(a => {
+    const qrSvg = generarQRSimple(a.code || a.name, 120);
+    const sc = stockClass(a.currentStock, a.minStock);
+    const color = sc === 'critico' ? '#dc2626' : sc === 'bajo' ? '#b45309' : '#047857';
+    return `<div class="etiqueta">
+      <div class="etiqueta-qr">${qrSvg}</div>
+      <div class="etiqueta-nombre">${escape(a.name)}</div>
+      ${a.code ? `<div class="etiqueta-codigo">${escape(a.code)}</div>` : ''}
+      <div class="etiqueta-stock" style="color:${color}">${a.currentStock} ${a.unit}</div>
+      ${a.location ? `<div class="etiqueta-ubicacion">${escape(a.location)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Etiquetas — ${escape(nombre)}</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:system-ui,sans-serif;font-size:11px;background:#fff}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:10px}
+      .etiqueta{border:1px solid #cbd5e1;border-radius:8px;padding:8px;text-align:center;page-break-inside:avoid;background:#fff}
+      .etiqueta-qr{display:flex;justify-content:center;margin-bottom:4px}
+      .etiqueta-qr svg{width:90px;height:90px}
+      .etiqueta-nombre{font-weight:700;font-size:11px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+      .etiqueta-codigo{color:#64748b;font-size:9.5px;margin-top:2px}
+      .etiqueta-stock{font-weight:700;font-size:12px;margin-top:3px}
+      .etiqueta-ubicacion{color:#94a3b8;font-size:9px;margin-top:2px}
+      @media print{@page{margin:6mm} body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    </style></head><body>
+    <div class="grid">${etiquetas}</div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
 }
 
 // ── ONBOARDING ─────────────────────────────────────────────────────────────────

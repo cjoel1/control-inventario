@@ -4,12 +4,13 @@
 
 import { init as initStore, subscribe, getState, setTab } from './store.js';
 import { renderIcons, ico } from './icons.js';
-import { renderInicio, renderArticulos, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding } from './views.js';
+import { renderInicio, renderArticulos, renderCompras, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding } from './views.js';
 import { toast, showPINScreen, showHelp } from './ui.js';
 import { getTheme, setTheme, isOnboardingDone, getEmpresa, getPIN, removePIN } from './storage.js';
 import { getActivationStatus, activateWithCode } from './activation.js';
 import { crearSnapshot } from './backup.js';
 import { openDB } from './db.js';
+import { verificarAlertas } from './notifications.js';
 
 // ── Service Worker ────────────────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ function applyTheme(tema) {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const TABS = ['inicio', 'articulos', 'historial', 'respaldo', 'ajustes'];
+const TABS = ['inicio', 'articulos', 'compras', 'historial', 'respaldo', 'ajustes'];
 
 async function renderTab(tab) {
   const vista = document.getElementById('vista');
@@ -120,6 +121,7 @@ async function renderTab(tab) {
   document.title = {
     inicio: 'Inicio',
     articulos: 'Artículos',
+    compras: 'Compras',
     historial: 'Historial',
     respaldo: 'Respaldo',
     ajustes: 'Ajustes',
@@ -128,6 +130,7 @@ async function renderTab(tab) {
   switch (tab) {
     case 'inicio':     renderInicio(vista); break;
     case 'articulos':  renderArticulos(vista); break;
+    case 'compras':    renderCompras(vista); break;
     case 'historial':  renderHistorial(vista); break;
     case 'respaldo':   await renderRespaldo(vista); break;
     case 'ajustes':    renderAjustes(vista); break;
@@ -230,6 +233,10 @@ function continueAfterPin() {
 
   // Daily snapshot
   maybeAutoSnapshot();
+
+  // Notifications (check once per day)
+  const state = getState();
+  verificarAlertas(state);
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────────────────

@@ -836,3 +836,23 @@ input:disabled { background: var(--superficie-2); color: var(--texto-suave); }
 .badge-entrada { background: var(--verde-suave); color: var(--verde); border: 1px solid var(--verde-borde); padding: 2px 8px; border-radius: 20px; font-size: .78rem; font-weight: 700; }
 .badge-salida  { background: var(--rojo-suave); color: var(--rojo); border: 1px solid var(--rojo-borde); padding: 2px 8px; border-radius: 20px; font-size: .78rem; font-weight: 700; }
 .badge-ajuste  { background: var(--info-suave); color: var(--info); border: 1px solid var(--acento-borde); padding: 2px 8px; border-radius: 20px; font-size: .78rem; font-weight: 700; }
+
+/* ── Vista Compras ────────────────────────────────────────────── */
+.compra-prov-cab { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--texto-suave); font-weight: 600; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--borde); }
+.compra-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--borde); }
+.compra-item:last-child { border-bottom: none; }
+.compra-info { flex: 1; min-width: 0; }
+.compra-nombre { font-weight: 700; font-size: .92rem; }
+.compra-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.compra-qty-ctrl { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.compra-qty { width: 56px; text-align: center; font-weight: 700; font-size: .95rem; padding: 5px 6px; }
+.compra-qty-btn { width: 30px; height: 30px; border: 1px solid var(--borde); border-radius: 6px; background: var(--superficie); color: var(--texto); font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.compra-qty-btn:hover { background: var(--acento-suave); border-color: var(--acento-borde); color: var(--acento); }
+.compra-unit { font-size: .8rem; color: var(--texto-suave); min-width: 36px; }
+.compra-bar { position: fixed; bottom: calc(env(safe-area-inset-bottom) + 60px); left: var(--lateral); right: 0; background: var(--superficie); border-top: 1px solid var(--borde); padding: 12px 20px; display: flex; gap: 12px; justify-content: flex-end; box-shadow: 0 -4px 16px rgba(15,23,42,.07); z-index: 90; }
+@media (max-width: 900px) { .compra-bar { left: 0; bottom: calc(env(safe-area-inset-bottom) + 72px); } }
+
+/* ── Barra de colored values (storage) ───────────────────────── */
+.barra-verde { background: var(--verde); }
+.barra-ambar { background: var(--ambar); }
+.barra-roja  { background: var(--rojo); }

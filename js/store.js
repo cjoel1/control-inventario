@@ -256,6 +256,68 @@ export function calcInventoryValue() {
   return articulosActivos().reduce((sum, a) => sum + (a.cost || 0) * (a.currentStock || 0), 0);
 }
 
+// ── Consumption analytics ──────────────────────────────────────────────────────
+
+export function calcDailyConsumption(articuloId, dias = 30) {
+  const desde = Date.now() - dias * 86400000;
+  const total = state.movimientos
+    .filter(m => m.articuloId === articuloId && m.type === 'salida' && m.at >= desde)
+    .reduce((s, m) => s + m.qty, 0);
+  return total / dias;
+}
+
+export function calcDiasRestantes(articuloId) {
+  const art = state.articulos.find(a => a.id === articuloId);
+  if (!art || art.currentStock <= 0) return 0;
+  const daily = calcDailyConsumption(articuloId);
+  if (daily <= 0) return null;
+  return Math.floor(art.currentStock / daily);
+}
+
+export function articulosPorAgotar(limite = 30) {
+  return articulosActivos()
+    .map(a => {
+      const daily = calcDailyConsumption(a.id);
+      if (daily <= 0) return null;
+      const dias = Math.floor(a.currentStock / daily);
+      return { art: a, daily: Number(daily.toFixed(3)), dias };
+    })
+    .filter(x => x !== null && x.dias <= limite)
+    .sort((a, b) => a.dias - b.dias);
+}
+
+export function generarListaCompra() {
+  const porAgotar = articulosPorAgotar(14);
+  const ids = new Set();
+  const items = [];
+
+  articulosActivos()
+    .filter(a => a.minStock > 0 && a.currentStock <= a.minStock)
+    .forEach(a => {
+      ids.add(a.id);
+      const agotamiento = porAgotar.find(x => x.art.id === a.id);
+      items.push({
+        ...a,
+        sugerido: Math.max(1, (a.minStock * 2) - a.currentStock),
+        motivo: 'bajo',
+        dias: agotamiento?.dias ?? null,
+      });
+    });
+
+  porAgotar.forEach(({ art, dias, daily }) => {
+    if (!ids.has(art.id)) {
+      items.push({
+        ...art,
+        sugerido: Math.max(1, Math.round(daily * 30)),
+        motivo: 'agotamiento',
+        dias,
+      });
+    }
+  });
+
+  return items.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
 export function topConsumidos(n = 5) {
   const artMap = {};
   state.movimientos

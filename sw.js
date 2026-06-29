@@ -9,7 +9,7 @@
  * -------------------------------------------------------------
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `control-inventario-${VERSION}`;
 
 /** Recursos que componen la app shell (disponibles sin internet). */
@@ -28,6 +28,7 @@ const RECURSOS = [
   './js/backup.js',
   './js/activation.js',
   './js/storage.js',
+  './js/notifications.js',
   './vendor/qrcode-generator.js',
   './vendor/jsQR.js',
   './vendor/fonts/inter-400.woff2',
