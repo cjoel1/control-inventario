@@ -19,6 +19,11 @@ export function fmtNum(n) {
   return Number(n).toLocaleString('es-MX');
 }
 
+export function fmtMoneda(n) {
+  if (!n && n !== 0) return '—';
+  return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function genId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -65,7 +70,6 @@ export function todayISO() {
 export function stockClass(current, min) {
   if (current <= 0) return 'critico';
   if (min > 0 && current <= min) return 'bajo';
-  if (min > 0 && current <= min * 1.5) return 'bajo';
   return 'ok';
 }
 
@@ -74,6 +78,30 @@ export function stockLabel(current, min) {
   if (cls === 'critico') return 'Sin stock';
   if (cls === 'bajo') return 'Stock bajo';
   return 'Normal';
+}
+
+/** Returns 'vencido' | 'critico' | 'proximo' | 'ok' | null */
+export function expiryClass(expiryDate) {
+  if (!expiryDate) return null;
+  const exp = new Date(expiryDate);
+  const now = new Date();
+  const diffDays = Math.ceil((exp - now) / 86400000);
+  if (diffDays < 0) return 'vencido';
+  if (diffDays <= 7) return 'critico';
+  if (diffDays <= 30) return 'proximo';
+  return 'ok';
+}
+
+export function expiryDaysLeft(expiryDate) {
+  if (!expiryDate) return null;
+  return Math.ceil((new Date(expiryDate) - new Date()) / 86400000);
+}
+
+export function calcInventoryValue(articulos) {
+  return articulos.reduce((sum, a) => {
+    if (!a.archivedAt && a.cost > 0) sum += (a.cost || 0) * (a.currentStock || 0);
+    return sum;
+  }, 0);
 }
 
 export async function fileToBase64(file) {
@@ -85,6 +113,39 @@ export async function fileToBase64(file) {
   });
 }
 
+export async function resizeImage(base64, maxW = 320, maxH = 320) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.75));
+    };
+    img.src = base64;
+  });
+}
+
 export function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
+}
+
+export function parseCsvLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
 }

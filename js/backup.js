@@ -4,7 +4,7 @@
 
 import { getAll, clearStore, bulkPut, put, del } from './db.js';
 import { exportPrefs, importPrefs } from './storage.js';
-import { descargaBlob, fmtFechaHora, fmtFecha, csvField, todayISO, genId } from './utils.js';
+import { descargaBlob, fmtFechaHora, fmtFecha, csvField, todayISO, genId, parseCsvLine } from './utils.js';
 import { reload } from './store.js';
 
 const SNAPSHOT_MAX = 10;
@@ -85,6 +85,62 @@ export async function exportarCSVMovimientos(movimientos = null, articulos = nul
   const csv = [headers.join(','), ...rows].join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   descargaBlob(blob, `inventario-movimientos-${todayISO()}.csv`);
+}
+
+// ── CSV Import ────────────────────────────────────────────────────────────────
+
+export async function importarCSVArticulos(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const lines = e.target.result.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { reject(new Error('El archivo CSV está vacío o no tiene datos')); return; }
+        const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+        const nameIdx = headers.findIndex(h => h === 'nombre' || h === 'name');
+        if (nameIdx === -1) { reject(new Error('No se encontró la columna "Nombre"')); return; }
+
+        const colIdx = (names) => {
+          for (const n of names) {
+            const i = headers.findIndex(h => h === n);
+            if (i !== -1) return i;
+          }
+          return -1;
+        };
+
+        const articulos = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvLine(lines[i]);
+          const name = cols[nameIdx]?.trim();
+          if (!name) continue;
+          articulos.push({
+            id: genId(),
+            name,
+            code:         cols[colIdx(['código','codigo','code'])]?.trim() || '',
+            category:     cols[colIdx(['categoría','categoria','category'])]?.trim() || 'General',
+            unit:         cols[colIdx(['unidad','unit'])]?.trim() || 'unidad',
+            currentStock: Number(cols[colIdx(['stock actual','currentstock','stock'])] ?? 0) || 0,
+            minStock:     Number(cols[colIdx(['stock mínimo','stock minimo','minstock','mínimo','minimo'])] ?? 0) || 0,
+            cost:         Number(cols[colIdx(['costo','cost','precio','price'])] ?? 0) || 0,
+            location:     cols[colIdx(['ubicación','ubicacion','location'])]?.trim() || '',
+            supplier:     cols[colIdx(['proveedor','supplier'])]?.trim() || '',
+            notes:        cols[colIdx(['notas','notes'])]?.trim() || '',
+            expiryDate:   cols[colIdx(['vencimiento','caducidad','expiry','expirydate'])]?.trim() || null,
+            photo:        null,
+            createdAt:    Date.now(),
+            archivedAt:   null,
+          });
+        }
+
+        if (articulos.length === 0) { reject(new Error('No se encontraron artículos válidos en el CSV')); return; }
+        await bulkPut('articulos', articulos);
+        await reload();
+        resolve({ count: articulos.length });
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file, 'utf-8');
+  });
 }
 
 // ── Snapshots ─────────────────────────────────────────────────────────────────
