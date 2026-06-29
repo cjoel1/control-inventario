@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Inventario de herramientas">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <!-- Fondo a sangre (sirve también como ícono maskable) -->
+  <rect width="512" height="512" rx="104" fill="url(#g)"/>
+  <!-- Esquinas tipo QR para evocar el escaneo de etiquetas -->
+  <g fill="#1b346f">
+    <rect x="64" y="64" width="84" height="84" rx="18"/>
+    <rect x="364" y="64" width="84" height="84" rx="18"/>
+    <rect x="64" y="364" width="84" height="84" rx="18"/>
+  </g>
+  <g fill="url(#g)">
+    <rect x="86" y="86" width="40" height="40" rx="9"/>
+    <rect x="386" y="86" width="40" height="40" rx="9"/>
+    <rect x="86" y="386" width="40" height="40" rx="9"/>
+  </g>
+  <!-- Llave inglesa estilizada en blanco -->
+  <path fill="#ffffff" d="M345 168c-30-30-79-30-109 0-21 21-27 51-19 78L150 327c-9 9-9 24 0 33l2 2c9 9 24 9 33 0l81-81c27 8 57 2 78-19 30-30 30-79 0-109l-34 34-29-8-8-29 34-34c-9-2-19-1-28 2z"/>
+  <circle cx="178" cy="334" r="11" fill="#1e3a8a"/>
+</svg>
