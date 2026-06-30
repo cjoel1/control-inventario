@@ -11,6 +11,7 @@ import {
   addMovimiento, bulkAjuste, setFiltroArticulos, setFiltroHistorial, resetData
 } from './store.js';
 import { ico } from './icons.js';
+import { qrSVG } from './qr.js';
 import { toast, openModal, closeModal, confirmacion, modalMovimiento } from './ui.js';
 import {
   exportarJSON, importarJSON, exportarCSVArticulos, exportarCSVMovimientos,
@@ -473,7 +474,7 @@ function modalArticulo(art) {
 // ── QR Code display ───────────────────────────────────────────────────────────
 
 function mostrarQRArt(art) {
-  const qrSvg = generarQRSimple(art.code || art.id, 200);
+  const qrSvg = qrSVG(art.code || art.id, 200);
   openModal({
     titulo: 'Código QR',
     cuerpo: `
@@ -492,33 +493,6 @@ function mostrarQRArt(art) {
   document.querySelector('#qr-print')?.addEventListener('click', () => window.print());
 }
 
-/** Minimal QR-like barcode: renders a simple grid pattern as SVG for display */
-function generarQRSimple(data, size = 160) {
-  const str = String(data);
-  const cells = 21;
-  const cell = size / cells;
-  let svg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${size}" height="${size}" fill="white"/>`;
-  // Finder patterns (3 corners)
-  const finder = (ox, oy) => {
-    svg += `<rect x="${ox*cell}" y="${oy*cell}" width="${7*cell}" height="${7*cell}" fill="black"/>`;
-    svg += `<rect x="${(ox+1)*cell}" y="${(oy+1)*cell}" width="${5*cell}" height="${5*cell}" fill="white"/>`;
-    svg += `<rect x="${(ox+2)*cell}" y="${(oy+2)*cell}" width="${3*cell}" height="${3*cell}" fill="black"/>`;
-  };
-  finder(0,0); finder(cells-7,0); finder(0,cells-7);
-  // Data modules based on string hash
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  for (let r = 0; r < cells; r++) {
-    for (let c = 0; c < cells; c++) {
-      if ((r < 8 && c < 8) || (r < 8 && c > cells-9) || (r > cells-9 && c < 8)) continue;
-      const bit = ((h ^ (r * 7 + c * 13) ^ (r * c)) & 1);
-      if (bit) svg += `<rect x="${c*cell}" y="${r*cell}" width="${cell}" height="${cell}" fill="black"/>`;
-    }
-  }
-  svg += '</svg>';
-  return svg;
-}
 
 // ── Scanner modal (BarcodeDetector / manual) ──────────────────────────────────
 
@@ -1370,7 +1344,7 @@ function imprimirEtiquetas(arts) {
   const { nombre } = getEmpresa();
 
   const etiquetas = arts.map(a => {
-    const qrSvg = generarQRSimple(a.code || a.name, 120);
+    const qrSvg = qrSVG(a.code || a.name, 120);
     const sc = stockClass(a.currentStock, a.minStock);
     const color = sc === 'critico' ? '#dc2626' : sc === 'bajo' ? '#b45309' : '#047857';
     return `<div class="etiqueta">
