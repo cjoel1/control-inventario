@@ -58,7 +58,26 @@
         <a class="nav-link" data-ruta="ajustes" href="#/ajustes" data-admin-only>
           <span class="nav-ico" data-ico="ajustes"></span><span class="nav-txt">Ajustes</span>
         </a>
+        <button class="nav-link" id="nav-mas-btn" style="display:none" aria-label="Más opciones">
+          <span class="nav-ico" data-ico="puntos"></span>
+          <span class="nav-txt">Más</span>
+        </button>
       </nav>
+
+      <!-- Mobile slide-up panel for admin-only tabs -->
+      <div class="nav-mas-fondo" id="nav-mas-fondo"></div>
+      <div class="nav-mas-sheet" id="nav-mas-sheet">
+        <div class="nav-mas-titulo">Administración</div>
+        <a class="nav-mas-item" href="#/reportes" data-ruta="reportes">
+          <span data-ico="reportes"></span><span>Reportes</span>
+        </a>
+        <a class="nav-mas-item" href="#/respaldo" data-ruta="respaldo">
+          <span data-ico="respaldo"></span><span>Respaldo</span>
+        </a>
+        <a class="nav-mas-item" href="#/ajustes" data-ruta="ajustes">
+          <span data-ico="ajustes"></span><span>Ajustes</span>
+        </a>
+      </div>
 
       <div class="sidebar-foot">
         <button class="ayuda-btn" id="ayuda-btn" type="button" aria-label="Centro de ayuda">

@@ -339,11 +339,43 @@ function updateSidebarForRole() {
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
+  // Body class lets CSS show "Más" button on mobile for admin only
+  document.body.classList.toggle('role-admin', isAdmin);
+  document.body.classList.toggle('role-operador', !isAdmin);
+  // "Más" button: always hidden on desktop via inline style; CSS overrides on mobile for admin
+  const masBtn = document.getElementById('nav-mas-btn');
+  if (masBtn) masBtn.style.display = isAdmin ? '' : 'none';
   const roleEl = document.getElementById('rol-display');
   if (roleEl) {
     roleEl.textContent = isAdmin ? 'Admin' : 'Operador';
     roleEl.style.color = isAdmin ? 'var(--acento)' : 'var(--ambar)';
   }
+}
+
+function initMobileMoreMenu() {
+  const btn = document.getElementById('nav-mas-btn');
+  const sheet = document.getElementById('nav-mas-sheet');
+  const fondo = document.getElementById('nav-mas-fondo');
+  if (!btn || !sheet || !fondo) return;
+
+  const ADMIN_TABS_SET = new Set(['reportes', 'respaldo', 'ajustes']);
+
+  function syncActive() {
+    const hash = location.hash.replace('#/', '') || 'inicio';
+    btn.classList.toggle('activo', ADMIN_TABS_SET.has(hash));
+    sheet.querySelectorAll('.nav-mas-item').forEach(el => {
+      el.classList.toggle('activo', el.dataset.ruta === hash);
+    });
+  }
+
+  function open() { fondo.classList.add('visible'); sheet.classList.add('visible'); }
+  function close() { fondo.classList.remove('visible'); sheet.classList.remove('visible'); }
+
+  btn.addEventListener('click', e => { e.stopPropagation(); fondo.classList.contains('visible') ? close() : open(); });
+  fondo.addEventListener('click', close);
+  sheet.querySelectorAll('.nav-mas-item').forEach(el => el.addEventListener('click', close));
+  window.addEventListener('hashchange', () => { close(); syncActive(); });
+  syncActive();
 }
 
 function continueAfterPin() {
@@ -360,6 +392,7 @@ function continueAfterPin() {
   verificarAlertas(state);
 
   initCommandPalette();
+  initMobileMoreMenu();
 }
 
 // ── Theme + DOMContentLoaded ──────────────────────────────────────────────────
