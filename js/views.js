@@ -878,6 +878,45 @@ export function renderReportes(container) {
   container.querySelector('#rep-criticos').addEventListener('click', () => imprimirReporteCriticos());
 }
 
+// ── Shared in-app print overlay (avoids window.open — works in iOS PWA) ───────
+
+function abrirVistaImpresion(titulo, cuerpoHtml, estilosCss) {
+  const OID = 'print-overlay';
+  const SID = 'print-overlay-style';
+  document.getElementById(OID)?.remove();
+  document.getElementById(SID)?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = OID;
+  overlay.className = 'doc-overlay';
+  overlay.innerHTML = `
+    <div class="doc-barra">
+      <span class="doc-titulo">${ico('imprimir', 18)} ${titulo}</span>
+      <div class="doc-acciones">
+        <button class="btn btn-sm doc-btn-imp" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.25)">${ico('imprimir', 15)} Imprimir</button>
+        <button class="btn btn-sm doc-btn-cerrar" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)">${ico('cerrar', 15)} Cerrar</button>
+      </div>
+    </div>
+    <div class="doc-cuerpo">
+      <div class="print-doc">${cuerpoHtml}</div>
+    </div>`;
+
+  const sty = document.createElement('style');
+  sty.id = SID;
+  sty.textContent = `.print-doc{font-family:system-ui,sans-serif;font-size:12px;color:#0f172a;max-width:960px;margin:0 auto;padding:4px}
+${estilosCss || ''}
+@media print{.app,.sidebar,.nav,#${OID} .doc-barra{display:none!important}#${OID}{position:static!important;background:#fff!important}.doc-cuerpo{padding:0!important;display:block!important}@page{margin:8mm}}`;
+  document.head.appendChild(sty);
+  document.body.appendChild(overlay);
+
+  const cerrar = () => { overlay.remove(); document.getElementById(SID)?.remove(); };
+  overlay.querySelector('.doc-btn-cerrar').addEventListener('click', cerrar);
+  overlay.querySelector('.doc-btn-imp').addEventListener('click', () => {
+    window.print();
+    window.onafterprint = () => { window.onafterprint = null; };
+  });
+}
+
 function imprimirReporteInventario() {
   const arts = articulosActivos().sort((a, b) => a.name.localeCompare(b.name, 'es'));
   const valor = calcInventoryValue();
@@ -899,27 +938,20 @@ function imprimirReporteInventario() {
     </tr>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Reporte de Inventario — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 3px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse} th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
-      thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-      .total{margin-top:14px;font-size:13px;font-weight:700;text-align:right;color:#1e3a8a}
-      @media print{body{margin:8mm}@page{margin:8mm}}
-    </style></head><body>
-    <h1>Reporte de Inventario General</h1>
+  abrirVistaImpresion(
+    `Reporte de Inventario — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 3px;color:#1e3a8a">Reporte de Inventario General</h1>
     <div class="sub">${escape(nombre)} · ${new Date().toLocaleString('es-MX')} · ${arts.length} artículos</div>
     <table>
       <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Stock</th><th>Unidad</th><th>Mín.</th><th>Costo</th><th>Valor</th><th>Vence</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
-    <div class="total">Valor total del inventario: $${fmtMoneda(valor)}</div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+    <div class="total">Valor total del inventario: $${fmtMoneda(valor)}</div>`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+    thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+    .total{margin-top:14px;font-size:13px;font-weight:700;text-align:right;color:#1e3a8a}`
+  );
 }
 
 function imprimirReporteMovimientos() {
@@ -951,19 +983,9 @@ function imprimirReporteMovimientos() {
     </tr>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Movimientos ${mesLabel} — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 3px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:12px}
-      .resumen{display:flex;gap:24px;margin-bottom:14px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0}
-      .res-item{display:flex;flex-direction:column} .res-lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
-      .res-val{font-size:16px;font-weight:800}
-      table{width:100%;border-collapse:collapse} th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
-      thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-      @media print{body{margin:8mm}@page{margin:8mm}}
-    </style></head><body>
-    <h1>Movimientos — ${escape(mesLabel)}</h1>
+  abrirVistaImpresion(
+    `Movimientos ${mesLabel} — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 3px;color:#1e3a8a">Movimientos — ${escape(mesLabel)}</h1>
     <div class="sub">${escape(nombre)} · Generado: ${new Date().toLocaleString('es-MX')} · ${movs.length} registros</div>
     <div class="resumen">
       <div class="res-item"><span class="res-lbl">Total entradas</span><span class="res-val" style="color:#047857">+${totalEntradas}</span></div>
@@ -973,11 +995,14 @@ function imprimirReporteMovimientos() {
     <table>
       <thead><tr><th>Fecha</th><th>Artículo</th><th>Tipo</th><th>Cant.</th><th>Valor</th><th>Notas</th></tr></thead>
       <tbody>${movs.length ? filas : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">Sin movimientos este mes</td></tr>'}</tbody>
-    </table>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+    </table>`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:12px}
+    .resumen{display:flex;gap:24px;margin-bottom:14px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0}
+    .res-item{display:flex;flex-direction:column}.res-lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+    .res-val{font-size:16px;font-weight:800}
+    table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
+    thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}`
+  );
 }
 
 function imprimirReporteCriticos() {
@@ -1012,18 +1037,9 @@ function imprimirReporteCriticos() {
       <td style="text-align:right;color:#64748b">${a.currentStock} ${a.unit}</td>
     </tr>`).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Artículos Críticos — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 3px;color:#dc2626} h2{font-size:14px;margin:20px 0 8px;color:#1e3a8a}
-      .sub{color:#64748b;font-size:11px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse;margin-bottom:24px}
-      th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
-      thead th{background:#dc2626;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-      @media print{body{margin:8mm}@page{margin:8mm}}
-    </style></head><body>
-    <h1>Reporte de Artículos Críticos</h1>
+  abrirVistaImpresion(
+    `Artículos Críticos — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 3px;color:#dc2626">Reporte de Artículos Críticos</h1>
     <div class="sub">${escape(nombre)} · ${new Date().toLocaleString('es-MX')}</div>
     ${criticos.length ? `
     <h2>Stock bajo / Sin stock (${criticos.length})</h2>
@@ -1036,11 +1052,13 @@ function imprimirReporteCriticos() {
     <table>
       <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Estado</th><th>Vencimiento</th><th>Stock</th></tr></thead>
       <tbody>${filasVenc}</tbody>
-    </table>` : ''}
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+    </table>` : ''}`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:16px}
+    h2{font-size:14px;margin:20px 0 8px;color:#1e3a8a}
+    table{width:100%;border-collapse:collapse;margin-bottom:24px}
+    th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
+    thead th{background:#dc2626;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}`
+  );
 }
 
 // ── RESPALDO ───────────────────────────────────────────────────────────────────
@@ -1232,29 +1250,20 @@ function imprimirReporte() {
     </tr>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Reporte de Inventario — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 4px} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse} th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left}
-      thead th{background:#1e3a8a;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-      .total{margin-top:16px;font-size:14px;font-weight:700;text-align:right}
-      @media print{body{margin:8mm}}
-    </style></head><body>
-    <h1>Reporte de Inventario</h1>
+  abrirVistaImpresion(
+    `Reporte de Inventario — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 4px;color:#1e3a8a">Reporte de Inventario</h1>
     <div class="sub">${escape(nombre)} · ${new Date().toLocaleString('es-MX')} · ${arts.length} artículos</div>
     <table>
       <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Stock</th><th>Unidad</th><th>Mín.</th><th>Costo</th><th>Valor</th><th>Vence</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
-    <div class="total">Valor total del inventario: $${fmtMoneda(valor)}</div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
+    <div class="total">Valor total del inventario: $${fmtMoneda(valor)}</div>`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left}
+    thead th{background:#1e3a8a;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+    .total{margin-top:16px;font-size:14px;font-weight:700;text-align:right}`
+  );
 }
 
 // ── AJUSTES ────────────────────────────────────────────────────────────────────
@@ -1954,20 +1963,9 @@ function imprimirOrdenGuardada(orden) {
     <td style="text-align:right;font-weight:600">${item.unitCost ? '$' + fmtMoneda(item.unitCost * item.qty) : '—'}</td>
   </tr>`).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>${escape(orden.numero)} — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,sans-serif;font-size:12px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 2px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse} th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left}
-      thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
-      .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
-      .info{display:flex;gap:24px;margin-bottom:14px;font-size:11px;color:#64748b}
-      .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
-      .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}
-      @media print{body{margin:8mm}}
-    </style></head><body>
-    <h1>${escape(orden.numero)}</h1>
+  abrirVistaImpresion(
+    `${escape(orden.numero)} — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 2px;color:#1e3a8a">${escape(orden.numero)}</h1>
     <div class="sub">${escape(nombre)} · Generada: ${fmtFecha(orden.createdAt)}</div>
     <div class="info">
       ${orden.proveedor ? `<span><strong>Proveedor:</strong> ${escape(orden.proveedor)}</span>` : ''}
@@ -1982,11 +1980,15 @@ function imprimirOrdenGuardada(orden) {
     <div class="firm">
       <div class="firm-box">Solicitado por: ___________________________</div>
       <div class="firm-box">Recibido por: ___________________________</div>
-    </div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+    </div>`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left}
+    thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+    .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
+    .info{display:flex;gap:24px;margin-bottom:14px;font-size:11px;color:#64748b;flex-wrap:wrap}
+    .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+    .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}`
+  );
 }
 
 function imprimirOrden(orden) {
@@ -2004,20 +2006,9 @@ function imprimirOrden(orden) {
       <td style="text-align:right;font-weight:600">${item.cost ? '$' + fmtMoneda(item.cost * qty) : '—'}</td>
     </tr>`).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Orden de Pedido — ${escape(nombre)}</title>
-    <style>
-      body{font-family:system-ui,sans-serif;font-size:12px;color:#0f172a;margin:20px}
-      h1{font-size:18px;margin:0 0 2px} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse}
-      th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
-      thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
-      .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
-      .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px}
-      .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}
-      @media print{body{margin:8mm}}
-    </style></head><body>
-    <h1>Orden de Pedido</h1>
+  abrirVistaImpresion(
+    `Orden de Pedido — ${escape(nombre)}`,
+    `<h1 style="font-size:18px;margin:0 0 2px;color:#1e3a8a">Orden de Pedido</h1>
     <div class="sub">${escape(nombre)} · Generada: ${new Date().toLocaleString('es-MX')} · ${orden.length} artículo${orden.length !== 1 ? 's' : ''}</div>
     <table>
       <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Proveedor</th><th>Stock actual</th><th>Cantidad pedida</th><th>Precio unit.</th><th>Subtotal</th></tr></thead>
@@ -2028,12 +2019,14 @@ function imprimirOrden(orden) {
       <div class="firm-box">Solicitado por: ___________________________</div>
       <div class="firm-box">Autorizado por: ___________________________</div>
       <div class="firm-box">Fecha de entrega esperada: ________________</div>
-    </div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
-
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+    </div>`,
+    `.sub{color:#64748b;font-size:11px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+    thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+    .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
+    .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px}
+    .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}`
+  );
 }
 
 // ── Etiquetas QR ──────────────────────────────────────────────────────────────
@@ -2042,40 +2035,72 @@ function imprimirEtiquetas(arts) {
   if (!arts.length) { toast('No hay artículos para imprimir', 'aviso'); return; }
   const { nombre } = getEmpresa();
 
-  const etiquetas = arts.map(a => {
-    const qrSvg = qrSVG(a.code || a.name, 120);
+  const etiquetasHtml = arts.map(a => {
+    const qrSvg = qrSVG(a.code || a.name, 96);
     const sc = stockClass(a.currentStock, a.minStock);
     const color = sc === 'critico' ? '#dc2626' : sc === 'bajo' ? '#b45309' : '#047857';
-    return `<div class="etiqueta">
-      <div class="etiqueta-qr">${qrSvg}</div>
-      <div class="etiqueta-nombre">${escape(a.name)}</div>
-      ${a.code ? `<div class="etiqueta-codigo">${escape(a.code)}</div>` : ''}
-      <div class="etiqueta-stock" style="color:${color}">${a.currentStock} ${a.unit}</div>
-      ${a.location ? `<div class="etiqueta-ubicacion">${escape(a.location)}</div>` : ''}
+    return `<div class="etiq">
+      <div class="etiq-qr">${qrSvg}</div>
+      <div class="etiq-nombre">${escape(a.name)}</div>
+      ${a.code ? `<div class="etiq-cod">${escape(a.code)}</div>` : ''}
+      <div class="etiq-stock" style="color:${color}">${a.currentStock} ${a.unit}</div>
+      ${a.location ? `<div class="etiq-ubi">${escape(a.location)}</div>` : ''}
     </div>`;
   }).join('');
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-    <title>Etiquetas — ${escape(nombre)}</title>
-    <style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:system-ui,sans-serif;font-size:11px;background:#fff}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:10px}
-      .etiqueta{border:1px solid #cbd5e1;border-radius:8px;padding:8px;text-align:center;page-break-inside:avoid;background:#fff}
-      .etiqueta-qr{display:flex;justify-content:center;margin-bottom:4px}
-      .etiqueta-qr svg{width:90px;height:90px}
-      .etiqueta-nombre{font-weight:700;font-size:11px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-      .etiqueta-codigo{color:#64748b;font-size:9.5px;margin-top:2px}
-      .etiqueta-stock{font-weight:700;font-size:12px;margin-top:3px}
-      .etiqueta-ubicacion{color:#94a3b8;font-size:9px;margin-top:2px}
-      @media print{@page{margin:6mm} body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-    </style></head><body>
-    <div class="grid">${etiquetas}</div>
-    <script>window.onload=()=>window.print()<\/script>
-    </body></html>`;
+  // Remove any previous overlay
+  document.getElementById('etiq-overlay')?.remove();
+  document.getElementById('etiq-print-style')?.remove();
 
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); }
+  // In-app overlay (avoids window.open, works in PWA/iOS)
+  const overlay = document.createElement('div');
+  overlay.id = 'etiq-overlay';
+  overlay.className = 'doc-overlay';
+  overlay.innerHTML = `
+    <div class="doc-barra">
+      <span class="doc-titulo">${ico('qr', 18)} Etiquetas QR · ${escape(nombre)}</span>
+      <div class="doc-acciones">
+        <button class="btn btn-sm" id="etiq-btn-imprimir" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.25)">${ico('imprimir', 15)} Imprimir</button>
+        <button class="btn btn-sm" id="etiq-btn-cerrar" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)">${ico('cerrar', 15)} Cerrar</button>
+      </div>
+    </div>
+    <div class="doc-cuerpo">
+      <div id="etiq-grid" class="etiq-grid">${etiquetasHtml}</div>
+    </div>`;
+
+  // Print-only style: hide everything but the label grid
+  const printStyle = document.createElement('style');
+  printStyle.id = 'etiq-print-style';
+  printStyle.textContent = `
+    .etiq-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px;width:100%;max-width:900px}
+    .etiq{border:1px solid #cbd5e1;border-radius:8px;padding:9px;text-align:center;background:#fff}
+    .etiq-qr{display:flex;justify-content:center;margin-bottom:4px}
+    .etiq-qr svg{width:90px;height:90px}
+    .etiq-nombre{font-family:system-ui,sans-serif;font-weight:700;font-size:11px;line-height:1.3;color:#0f172a;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+    .etiq-cod{font-family:monospace;color:#64748b;font-size:9.5px;margin-top:2px}
+    .etiq-stock{font-family:system-ui,sans-serif;font-weight:700;font-size:12px;margin-top:3px}
+    .etiq-ubi{font-family:system-ui,sans-serif;color:#94a3b8;font-size:9px;margin-top:2px}
+    @media print{
+      .app,.sidebar,.nav,#etiq-overlay .doc-barra{display:none!important}
+      #etiq-overlay{position:static!important;background:#fff!important}
+      .doc-cuerpo{padding:0!important;display:block!important}
+      .etiq-grid{max-width:none}
+      .etiq{page-break-inside:avoid;break-inside:avoid}
+      @page{margin:6mm}
+    }`;
+  document.head.appendChild(printStyle);
+  document.body.appendChild(overlay);
+
+  const cerrar = () => {
+    overlay.remove();
+    document.getElementById('etiq-print-style')?.remove();
+  };
+
+  overlay.querySelector('#etiq-btn-cerrar').addEventListener('click', cerrar);
+  overlay.querySelector('#etiq-btn-imprimir').addEventListener('click', () => {
+    window.print();
+    window.onafterprint = () => { window.onafterprint = null; };
+  });
 }
 
 // ── ONBOARDING ─────────────────────────────────────────────────────────────────
