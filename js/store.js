@@ -11,6 +11,7 @@ let state = {
   articulos: [],
   movimientos: [],
   proveedores: [],
+  ordenes: [],
   config: {},
   categorias: [],
   unidades: [],
@@ -38,16 +39,18 @@ export function getState() {
 }
 
 async function loadData() {
-  const [articulos, movimientos, proveedores] = await Promise.all([
+  const [articulos, movimientos, proveedores, ordenes] = await Promise.all([
     getAll('articulos'),
     getAll('movimientos'),
     getAll('proveedores'),
+    getAll('ordenes'),
   ]);
   state = {
     ...state,
     articulos,
     movimientos,
     proveedores,
+    ordenes,
     categorias: getCategories(),
     unidades: getUnits(),
     empresa: getEmpresa(),
@@ -334,7 +337,7 @@ export function topConsumidos(n = 5) {
 }
 
 export async function resetData() {
-  await Promise.all([clearStore('articulos'), clearStore('movimientos'), clearStore('snapshots'), clearStore('proveedores')]);
+  await Promise.all([clearStore('articulos'), clearStore('movimientos'), clearStore('snapshots'), clearStore('proveedores'), clearStore('ordenes')]);
   await reload();
 }
 
@@ -374,4 +377,61 @@ export async function deleteProveedor(id) {
   await del('proveedores', id);
   state = { ...state, proveedores: state.proveedores.filter(p => p.id !== id) };
   notify();
+}
+
+// ── Purchase Orders ───────────────────────────────────────────────────────────
+
+export function getOrdenes() {
+  return [...state.ordenes].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function addOrden(data) {
+  const nums = state.ordenes.map(o => parseInt((o.numero || '').replace('ORD-', '')) || 0);
+  const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
+  const orden = {
+    id: genId(),
+    numero: `ORD-${String(nextNum).padStart(4, '0')}`,
+    items: data.items || [],
+    estado: 'borrador',
+    proveedor: data.proveedor || '',
+    notas: data.notas || '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    receivedAt: null,
+  };
+  await put('ordenes', orden);
+  state = { ...state, ordenes: [...state.ordenes, orden] };
+  notify();
+  return orden;
+}
+
+export async function updateOrden(id, data) {
+  const existing = state.ordenes.find(o => o.id === id);
+  if (!existing) return;
+  const updated = { ...existing, ...data, updatedAt: Date.now() };
+  await put('ordenes', updated);
+  state = { ...state, ordenes: state.ordenes.map(o => o.id === id ? updated : o) };
+  notify();
+}
+
+export async function deleteOrden(id) {
+  await del('ordenes', id);
+  state = { ...state, ordenes: state.ordenes.filter(o => o.id !== id) };
+  notify();
+}
+
+export async function receiveOrden(id, receivedItems) {
+  const orden = state.ordenes.find(o => o.id === id);
+  if (!orden || orden.estado !== 'enviada') return;
+  for (const item of receivedItems) {
+    if (item.qty > 0) {
+      await addMovimiento({
+        articuloId: item.articuloId,
+        type: 'entrada',
+        qty: item.qty,
+        notes: `Recepción ${orden.numero}`,
+      });
+    }
+  }
+  await updateOrden(id, { estado: 'recibida', receivedAt: Date.now() });
 }

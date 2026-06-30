@@ -14,6 +14,7 @@ const K = {
   CATEGORIES: 'categorias',
   UNITS: 'unidades',
   ALTO_CONTRASTE: 'alto_contraste',
+  ROL: '__rol',
 };
 
 function genDeviceId() {
@@ -117,6 +118,14 @@ export function setUnits(units) {
 
 export function defaultUnits() {
   return ['unidad', 'paquete', 'caja', 'bolsa', 'litro', 'kg', 'par', 'docena', 'rollo'];
+}
+
+export function getRole() {
+  return localStorage.getItem(K.ROL) || 'admin';
+}
+
+export function setRole(rol) {
+  localStorage.setItem(K.ROL, rol);
 }
 
 export function getAltoContraste() {

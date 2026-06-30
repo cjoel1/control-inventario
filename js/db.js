@@ -5,7 +5,7 @@
  */
 
 const DB_NAME = 'control-inventario';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let _db = null;
 
@@ -41,6 +41,12 @@ export function openDB() {
 
       if (!db.objectStoreNames.contains('proveedores')) {
         db.createObjectStore('proveedores', { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains('ordenes')) {
+        const ordStore = db.createObjectStore('ordenes', { keyPath: 'id' });
+        ordStore.createIndex('estado', 'estado', { unique: false });
+        ordStore.createIndex('createdAt', 'createdAt', { unique: false });
       }
     };
 

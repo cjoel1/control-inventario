@@ -8,6 +8,7 @@ import {
   filteredArticulos, filteredMovimientos, calcInventoryValue, topConsumidos,
   calcDiasRestantes, articulosPorAgotar, generarListaCompra,
   getProveedores, addProveedor, updateProveedor, deleteProveedor,
+  getOrdenes, addOrden, updateOrden, deleteOrden, receiveOrden,
   addArticulo, updateArticulo, archiveArticulo, unarchiveArticulo,
   addMovimiento, bulkAjuste, setFiltroArticulos, setFiltroHistorial, resetData
 } from './store.js';
@@ -22,7 +23,8 @@ import {
 import {
   getCategories, setCategories, getUnits, setUnits,
   getEmpresa, setEmpresa, getPIN, setPIN, removePIN,
-  defaultCategories, defaultUnits, markOnboardingDone
+  defaultCategories, defaultUnits, markOnboardingDone,
+  getRole, setRole
 } from './storage.js';
 import {
   notificacionesHabilitadas, notificacionesSoportadas,
@@ -58,6 +60,59 @@ function tipoLabel(tipo) {
   return `<span class="badge-ajuste">${ico('ajustes', 12)} Ajuste</span>`;
 }
 
+// ── Chart helpers ──────────────────────────────────────────────────────────────
+
+function donutSVG(ok, bajo, critico) {
+  const r = 36, cx = 50, cy = 50, sw = 11;
+  const C = 2 * Math.PI * r;
+  const total = ok + bajo + critico;
+  const t = total || 1;
+  const seg = v => (v / t) * C;
+  const okLen = seg(ok), bajoLen = seg(bajo), critLen = seg(critico);
+  const circle = (len, offset, color) => len < 0.5 ? '' :
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${sw}"
+      stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}"
+      stroke-dashoffset="${offset.toFixed(2)}"
+      transform="rotate(-90 ${cx} ${cy})"/>`;
+  return `<svg width="104" height="104" viewBox="0 0 100 100">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--borde)" stroke-width="${sw}"/>
+    ${circle(okLen, 0, 'var(--verde)')}
+    ${circle(bajoLen, -okLen, 'var(--ambar)')}
+    ${circle(critLen, -(okLen + bajoLen), 'var(--rojo)')}
+    <text x="${cx}" y="47" text-anchor="middle" dominant-baseline="middle" font-size="22" font-weight="800" fill="currentColor">${total}</text>
+    <text x="${cx}" y="63" text-anchor="middle" font-size="9" fill="var(--texto-tenue)">artículos</text>
+  </svg>`;
+}
+
+function sparklineSVG(movimientos) {
+  const days = 7, W = 196, H = 64, baseY = 46, chartH = 40;
+  const colW = W / days;
+  const labels = [], entradas = [], salidas = [];
+  const now = Date.now();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now - i * 86400000);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    labels.push(d.toLocaleDateString('es-MX', { weekday: 'short' }).slice(0, 2));
+    const dm = movimientos.filter(m => m.at >= dayStart && m.at < dayStart + 86400000);
+    entradas.push(dm.filter(m => m.type === 'entrada').reduce((s, m) => s + m.qty, 0));
+    salidas.push(dm.filter(m => m.type === 'salida').reduce((s, m) => s + m.qty, 0));
+  }
+  const maxVal = Math.max(...entradas, ...salidas, 1);
+  let bars = '';
+  for (let i = 0; i < days; i++) {
+    const cx = (i + 0.5) * colW;
+    const eH = Math.max(2, (entradas[i] / maxVal) * chartH);
+    const sH = Math.max(2, (salidas[i] / maxVal) * chartH);
+    bars += `<rect x="${(cx-7).toFixed(1)}" y="${(baseY-eH).toFixed(1)}" width="6" height="${eH.toFixed(1)}" rx="1.5" fill="var(--verde)" opacity=".85"/>`;
+    bars += `<rect x="${(cx+1).toFixed(1)}" y="${(baseY-sH).toFixed(1)}" width="6" height="${sH.toFixed(1)}" rx="1.5" fill="var(--rojo)" opacity=".75"/>`;
+    bars += `<text x="${cx.toFixed(1)}" y="${H-3}" text-anchor="middle" font-size="8.5" fill="var(--texto-tenue)">${labels[i]}</text>`;
+  }
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" stroke="var(--borde)" stroke-width="1"/>
+    ${bars}
+  </svg>`;
+}
+
 // ── INICIO ─────────────────────────────────────────────────────────────────────
 
 export function renderInicio(container) {
@@ -72,6 +127,10 @@ export function renderInicio(container) {
   const artMap = {};
   activos.forEach(a => { artMap[a.id] = a; });
   const recientes = [...state.movimientos].sort((a, b) => b.at - a.at).slice(0, 6);
+
+  const criticoCount = sinStock.length;
+  const bajoCount = bajoStock.filter(a => a.currentStock > 0).length;
+  const okCount = activos.length - bajoStock.length;
 
   const alertaVenc = (vencidos.length || porVencer.length) ? `
     <div class="alerta-stock" style="border-color:var(--ambar-borde);background:var(--ambar-suave)">
@@ -207,6 +266,27 @@ export function renderInicio(container) {
         </div>
       </div>
 
+      ${activos.length ? `
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;margin-bottom:4px;align-items:start">
+        <div class="bloque" style="padding:16px 18px">
+          <div style="font-size:.75rem;color:var(--texto-tenue);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Estado del stock</div>
+          ${donutSVG(okCount, bajoCount, criticoCount)}
+          <div style="display:flex;flex-direction:column;gap:5px;margin-top:10px;font-size:.8rem">
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:var(--verde);border-radius:50%;flex-shrink:0"></span>Normal: <strong>${okCount}</strong></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:var(--ambar);border-radius:50%;flex-shrink:0"></span>Bajo: <strong>${bajoCount}</strong></div>
+            <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:var(--rojo);border-radius:50%;flex-shrink:0"></span>Crítico: <strong>${criticoCount}</strong></div>
+          </div>
+        </div>
+        <div class="bloque" style="padding:16px 18px">
+          <div style="font-size:.75rem;color:var(--texto-tenue);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Movimientos — últimos 7 días</div>
+          ${sparklineSVG(state.movimientos)}
+          <div style="display:flex;gap:14px;margin-top:8px;font-size:.8rem">
+            <div style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:8px;background:var(--verde);border-radius:2px;flex-shrink:0;opacity:.85"></span>Entradas</div>
+            <div style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:8px;background:var(--rojo);border-radius:2px;flex-shrink:0;opacity:.75"></span>Salidas</div>
+          </div>
+        </div>
+      </div>` : ''}
+
       ${alertaVenc}
       ${alertaStockHtml}
       ${pronosticoHtml}
@@ -219,6 +299,7 @@ export function renderInicio(container) {
 // ── ARTÍCULOS ──────────────────────────────────────────────────────────────────
 
 export function renderArticulos(container) {
+  const isAdmin = getRole() === 'admin';
   const state = getState();
   const cats = ['todos', ...getCategories()];
   const { busqueda, categoria, orden, vista } = state.filtros.articulos;
@@ -257,8 +338,8 @@ export function renderArticulos(container) {
         <div class="art-acciones">
           <button class="btn btn-sm btn-entrada" data-action="entrada" data-id="${a.id}">${ico('mas', 14)} Entrada</button>
           <button class="btn btn-sm btn-salida" data-action="salida" data-id="${a.id}">${ico('menos', 14)} Salida</button>
-          <button class="btn btn-sm btn-icono" data-action="editar" data-id="${a.id}" title="Editar">${ico('editar', 16)}</button>
-          <button class="btn btn-sm btn-icono" data-action="archivar" data-id="${a.id}" title="Archivar">${ico('archivo', 16)}</button>
+          ${isAdmin ? `<button class="btn btn-sm btn-icono" data-action="editar" data-id="${a.id}" title="Editar">${ico('editar', 16)}</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-sm btn-icono" data-action="archivar" data-id="${a.id}" title="Archivar">${ico('archivo', 16)}</button>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -272,9 +353,9 @@ export function renderArticulos(container) {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-secundario btn-sm" id="btn-escanear" title="Escanear QR">${ico('escaner', 16)} Escanear</button>
-          <button class="btn btn-secundario btn-sm" id="btn-conteo" title="Modo conteo">${ico('conteo', 16)} Conteo</button>
-          <button class="btn btn-secundario btn-sm" id="btn-etiquetas" title="Imprimir etiquetas QR">${ico('qr', 16)} Etiquetas</button>
-          <button class="btn btn-primario" id="btn-nuevo">${ico('mas', 18)} Nuevo</button>
+          ${isAdmin ? `<button class="btn btn-secundario btn-sm" id="btn-conteo" title="Modo conteo">${ico('conteo', 16)} Conteo</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-secundario btn-sm" id="btn-etiquetas" title="Imprimir etiquetas QR">${ico('qr', 16)} Etiquetas</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-primario" id="btn-nuevo">${ico('mas', 18)} Nuevo</button>` : ''}
         </div>
       </div>
 
@@ -303,10 +384,10 @@ export function renderArticulos(container) {
       </div>
     </div>`;
 
-  container.querySelector('#btn-nuevo').addEventListener('click', () => modalArticulo(null));
+  container.querySelector('#btn-nuevo')?.addEventListener('click', () => modalArticulo(null));
   container.querySelector('#btn-escanear').addEventListener('click', () => modalEscanear());
-  container.querySelector('#btn-conteo').addEventListener('click', () => modalConteo());
-  container.querySelector('#btn-etiquetas').addEventListener('click', () => imprimirEtiquetas(filteredArticulos()));
+  container.querySelector('#btn-conteo')?.addEventListener('click', () => modalConteo());
+  container.querySelector('#btn-etiquetas')?.addEventListener('click', () => imprimirEtiquetas(filteredArticulos()));
 
   container.querySelector('#busq-art').addEventListener('input', debounce(e => {
     setFiltroArticulos({ busqueda: e.target.value });
@@ -736,6 +817,232 @@ export function renderHistorial(container) {
   });
 }
 
+// ── REPORTES ──────────────────────────────────────────────────────────────────
+
+export function renderReportes(container) {
+  const state = getState();
+  const activos = articulosActivos();
+  const valor = calcInventoryValue();
+  const criticos = articulosBajoStock();
+  const vencidos = articulosVencidos();
+
+  const now = new Date();
+  const mesActual = now.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+
+  container.innerHTML = `
+    <div class="vista">
+      <h1 class="titulo-vista">${ico('reportes', 22)} Reportes</h1>
+      <p class="subtitulo-vista">Genera reportes imprimibles del inventario</p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:8px">
+        <div class="bloque reporte-card" id="rep-inventario" style="cursor:pointer;transition:box-shadow .15s">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:44px;height:44px;border-radius:12px;background:var(--grad-acento);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff">${ico('paquete', 22)}</div>
+            <div>
+              <div style="font-weight:700;font-size:.95rem">Inventario general</div>
+              <div style="font-size:.8rem;color:var(--texto-suave)">${activos.length} artículos · $${calcInventoryValue() ? fmtMoneda(calcInventoryValue()) : '0'}</div>
+            </div>
+          </div>
+          <p style="font-size:.85rem;color:var(--texto-suave);margin:0 0 14px">Listado completo con stock, valor, ubicación y estado de vencimiento.</p>
+          <button class="btn btn-primario btn-sm">${ico('imprimir', 14)} Generar PDF</button>
+        </div>
+
+        <div class="bloque reporte-card" id="rep-movimientos" style="cursor:pointer;transition:box-shadow .15s">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#10b981,#059669);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff">${ico('historial', 22)}</div>
+            <div>
+              <div style="font-weight:700;font-size:.95rem">Movimientos del mes</div>
+              <div style="font-size:.8rem;color:var(--texto-suave)">${mesActual}</div>
+            </div>
+          </div>
+          <p style="font-size:.85rem;color:var(--texto-suave);margin:0 0 14px">Entradas, salidas y ajustes registrados durante el mes en curso.</p>
+          <button class="btn btn-primario btn-sm">${ico('imprimir', 14)} Generar PDF</button>
+        </div>
+
+        <div class="bloque reporte-card" id="rep-criticos" style="cursor:pointer;transition:box-shadow .15s">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div style="width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#ef4444,#dc2626);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff">${ico('alerta', 22)}</div>
+            <div>
+              <div style="font-weight:700;font-size:.95rem">Artículos críticos</div>
+              <div style="font-size:.8rem;color:var(--texto-suave)">${criticos.length + vencidos.length} alertas activas</div>
+            </div>
+          </div>
+          <p style="font-size:.85rem;color:var(--texto-suave);margin:0 0 14px">Artículos con stock bajo, sin stock o con productos vencidos/por vencer.</p>
+          <button class="btn btn-primario btn-sm">${ico('imprimir', 14)} Generar PDF</button>
+        </div>
+      </div>
+    </div>`;
+
+  container.querySelector('#rep-inventario').addEventListener('click', () => imprimirReporteInventario());
+  container.querySelector('#rep-movimientos').addEventListener('click', () => imprimirReporteMovimientos());
+  container.querySelector('#rep-criticos').addEventListener('click', () => imprimirReporteCriticos());
+}
+
+function imprimirReporteInventario() {
+  const arts = articulosActivos().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const valor = calcInventoryValue();
+  const { nombre } = getEmpresa();
+  const filas = arts.map(a => {
+    const sc = stockClass(a.currentStock, a.minStock);
+    const ec = expiryClass(a.expiryDate);
+    const rowBg = sc === 'critico' ? '#fef2f2' : sc === 'bajo' ? '#fffbeb' : '';
+    return `<tr style="${rowBg ? 'background:' + rowBg : ''}">
+      <td>${escape(a.code || '')}</td>
+      <td><strong>${escape(a.name)}</strong>${a.location ? `<br><small style="color:#64748b">${escape(a.location)}</small>` : ''}</td>
+      <td>${escape(a.category)}</td>
+      <td style="text-align:right;font-weight:700;color:${sc==='critico'?'#dc2626':sc==='bajo'?'#b45309':'#047857'}">${a.currentStock}</td>
+      <td>${escape(a.unit)}</td>
+      <td style="text-align:right">${a.minStock || '—'}</td>
+      <td style="text-align:right">${a.cost ? '$' + fmtMoneda(a.cost) : '—'}</td>
+      <td style="text-align:right">${a.cost ? '$' + fmtMoneda(a.cost * a.currentStock) : '—'}</td>
+      <td style="color:${ec==='vencido'?'#dc2626':ec==='critico'||ec==='proximo'?'#b45309':'#047857'}">${a.expiryDate ? fmtFecha(a.expiryDate) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Reporte de Inventario — ${escape(nombre)}</title>
+    <style>
+      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
+      h1{font-size:18px;margin:0 0 3px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse} th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}
+      thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+      .total{margin-top:14px;font-size:13px;font-weight:700;text-align:right;color:#1e3a8a}
+      @media print{body{margin:8mm}@page{margin:8mm}}
+    </style></head><body>
+    <h1>Reporte de Inventario General</h1>
+    <div class="sub">${escape(nombre)} · ${new Date().toLocaleString('es-MX')} · ${arts.length} artículos</div>
+    <table>
+      <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Stock</th><th>Unidad</th><th>Mín.</th><th>Costo</th><th>Valor</th><th>Vence</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    <div class="total">Valor total del inventario: $${fmtMoneda(valor)}</div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
+function imprimirReporteMovimientos() {
+  const { nombre } = getEmpresa();
+  const now = new Date();
+  const mesStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const state = getState();
+  const artMap = {};
+  state.articulos.forEach(a => { artMap[a.id] = a; });
+  const movs = [...state.movimientos]
+    .filter(m => m.at >= mesStart)
+    .sort((a, b) => b.at - a.at);
+
+  const totalEntradas = movs.filter(m => m.type === 'entrada').reduce((s, m) => s + m.qty, 0);
+  const totalSalidas = movs.filter(m => m.type === 'salida').reduce((s, m) => s + m.qty, 0);
+  const mesLabel = now.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+
+  const filas = movs.map(m => {
+    const art = artMap[m.articuloId];
+    const val = (m.cost || 0) * m.qty;
+    const color = m.type === 'entrada' ? '#047857' : m.type === 'salida' ? '#dc2626' : '#1d4ed8';
+    return `<tr>
+      <td style="white-space:nowrap;color:#64748b;font-size:10.5px">${fmtFechaHora(m.at)}</td>
+      <td>${art ? escape(art.name) : '—'}</td>
+      <td style="color:${color};font-weight:700;text-transform:capitalize">${m.type}</td>
+      <td style="text-align:right;font-weight:700;color:${color}">${m.type === 'salida' ? '−' : '+'}${m.qty}</td>
+      <td style="text-align:right;color:#64748b">${val > 0 ? '$' + fmtMoneda(val) : '—'}</td>
+      <td style="color:#64748b;font-size:10.5px">${escape(m.notes)}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Movimientos ${mesLabel} — ${escape(nombre)}</title>
+    <style>
+      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
+      h1{font-size:18px;margin:0 0 3px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:12px}
+      .resumen{display:flex;gap:24px;margin-bottom:14px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0}
+      .res-item{display:flex;flex-direction:column} .res-lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+      .res-val{font-size:16px;font-weight:800}
+      table{width:100%;border-collapse:collapse} th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
+      thead th{background:#1e3a8a;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+      @media print{body{margin:8mm}@page{margin:8mm}}
+    </style></head><body>
+    <h1>Movimientos — ${escape(mesLabel)}</h1>
+    <div class="sub">${escape(nombre)} · Generado: ${new Date().toLocaleString('es-MX')} · ${movs.length} registros</div>
+    <div class="resumen">
+      <div class="res-item"><span class="res-lbl">Total entradas</span><span class="res-val" style="color:#047857">+${totalEntradas}</span></div>
+      <div class="res-item"><span class="res-lbl">Total salidas</span><span class="res-val" style="color:#dc2626">−${totalSalidas}</span></div>
+      <div class="res-item"><span class="res-lbl">Registros</span><span class="res-val">${movs.length}</span></div>
+    </div>
+    <table>
+      <thead><tr><th>Fecha</th><th>Artículo</th><th>Tipo</th><th>Cant.</th><th>Valor</th><th>Notas</th></tr></thead>
+      <tbody>${movs.length ? filas : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px">Sin movimientos este mes</td></tr>'}</tbody>
+    </table>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
+function imprimirReporteCriticos() {
+  const { nombre } = getEmpresa();
+  const criticos = articulosBajoStock().sort((a, b) => a.currentStock - b.currentStock);
+  const vencidos = articulosVencidos();
+  const porVencer = articulosPorVencer(30).filter(a => !vencidos.some(v => v.id === a.id));
+
+  const filasCriticos = criticos.map(a => {
+    const sc = stockClass(a.currentStock, a.minStock);
+    const color = sc === 'critico' ? '#dc2626' : '#b45309';
+    return `<tr style="background:${sc==='critico'?'#fef2f2':'#fffbeb'}">
+      <td>${escape(a.code || '')}</td>
+      <td><strong>${escape(a.name)}</strong>${a.location ? `<br><small style="color:#64748b">${escape(a.location)}</small>` : ''}</td>
+      <td>${escape(a.category)}</td>
+      <td style="text-align:right;font-weight:800;color:${color}">${a.currentStock}</td>
+      <td>${escape(a.unit)}</td>
+      <td style="text-align:right;color:#64748b">${a.minStock}</td>
+      <td style="text-align:right;font-weight:700;color:${color}">${Math.max(0, a.minStock - a.currentStock)}</td>
+      <td>${escape(a.supplier || '—')}</td>
+    </tr>`;
+  }).join('');
+
+  const filasVenc = [...vencidos.map(a => ({ a, label: 'VENCIDO', color: '#dc2626', bg: '#fef2f2' })),
+    ...porVencer.map(a => ({ a, label: `${expiryDaysLeft(a.expiryDate)}d`, color: '#b45309', bg: '#fffbeb' }))].map(({ a, label, color, bg }) =>
+    `<tr style="background:${bg}">
+      <td>${escape(a.code || '')}</td>
+      <td><strong>${escape(a.name)}</strong></td>
+      <td>${escape(a.category)}</td>
+      <td style="text-align:right;font-weight:800;color:${color}">${label}</td>
+      <td style="color:#64748b">${a.expiryDate ? fmtFecha(a.expiryDate) : '—'}</td>
+      <td style="text-align:right;color:#64748b">${a.currentStock} ${a.unit}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>Artículos Críticos — ${escape(nombre)}</title>
+    <style>
+      body{font-family:system-ui,sans-serif;font-size:11.5px;color:#0f172a;margin:20px}
+      h1{font-size:18px;margin:0 0 3px;color:#dc2626} h2{font-size:14px;margin:20px 0 8px;color:#1e3a8a}
+      .sub{color:#64748b;font-size:11px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;margin-bottom:24px}
+      th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}
+      thead th{background:#dc2626;color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+      @media print{body{margin:8mm}@page{margin:8mm}}
+    </style></head><body>
+    <h1>Reporte de Artículos Críticos</h1>
+    <div class="sub">${escape(nombre)} · ${new Date().toLocaleString('es-MX')}</div>
+    ${criticos.length ? `
+    <h2>Stock bajo / Sin stock (${criticos.length})</h2>
+    <table>
+      <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Stock</th><th>Unidad</th><th>Mín.</th><th>Faltante</th><th>Proveedor</th></tr></thead>
+      <tbody>${filasCriticos}</tbody>
+    </table>` : '<p style="color:#64748b">No hay artículos con stock bajo.</p>'}
+    ${(vencidos.length || porVencer.length) ? `
+    <h2>Vencidos / Por vencer (${vencidos.length + porVencer.length})</h2>
+    <table>
+      <thead><tr><th>Código</th><th>Artículo</th><th>Cat.</th><th>Estado</th><th>Vencimiento</th><th>Stock</th></tr></thead>
+      <tbody>${filasVenc}</tbody>
+    </table>` : ''}
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
 // ── RESPALDO ───────────────────────────────────────────────────────────────────
 
 export async function renderRespaldo(container) {
@@ -958,11 +1265,32 @@ export function renderAjustes(container) {
   const units = getUnits();
   const pinActive = !!getPIN();
   const archivados = articulosArchivados();
+  const currentRole = getRole();
 
   container.innerHTML = `
     <div class="vista">
       <h1 class="titulo-vista">${ico('ajustes', 22)} Ajustes</h1>
       <p class="subtitulo-vista">Configura la app</p>
+
+      <div class="bloque">
+        <h2>${ico('escudo', 18)} Rol de usuario</h2>
+        <p style="color:var(--texto-suave);font-size:.88rem;margin:4px 0 14px">
+          Controla qué funciones están disponibles en este dispositivo.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn${currentRole === 'admin' ? ' btn-primario' : ' btn-secundario'}" id="btn-rol-admin">
+            ${ico('escudo', 16)} Administrador
+          </button>
+          <button class="btn${currentRole === 'operador' ? ' btn-primario' : ' btn-secundario'}" id="btn-rol-operador">
+            ${ico('persona', 16)} Operador
+          </button>
+        </div>
+        <p style="color:var(--texto-tenue);font-size:.8rem;margin-top:10px">
+          ${currentRole === 'admin'
+            ? 'Acceso completo: todos los módulos, reportes, ajustes y respaldo.'
+            : 'Acceso limitado: solo entradas, salidas e historial. Sin eliminaciones ni ajustes avanzados.'}
+        </p>
+      </div>
 
       <div class="bloque">
         <h2>${ico('empresa', 18)} Empresa</h2>
@@ -1060,6 +1388,21 @@ export function renderAjustes(container) {
           </div>` : '<p style="color:var(--texto-tenue);margin-top:8px">Sin artículos archivados.</p>'}
       </div>
     </div>`;
+
+  container.querySelector('#btn-rol-admin').addEventListener('click', () => {
+    setRole('admin');
+    toast('Rol: Administrador', 'exito');
+    document.querySelector('#rol-display')?.classList.remove('rol-operador');
+    renderAjustes(container);
+  });
+  container.querySelector('#btn-rol-operador').addEventListener('click', async () => {
+    const ok = await confirmacion('¿Cambiar a rol Operador? Perderás acceso a Ajustes y Respaldo desde este dispositivo.');
+    if (!ok) return;
+    setRole('operador');
+    toast('Rol: Operador activo', 'info');
+    document.querySelector('#rol-display')?.classList.add('rol-operador');
+    location.hash = '#/inicio';
+  });
 
   let logoDataUrl = empresa.logo || null;
   container.querySelector('#emp-logo-file').addEventListener('change', async e => {
@@ -1186,91 +1529,162 @@ export function renderAjustes(container) {
 
 // ── COMPRAS ────────────────────────────────────────────────────────────────────
 
-export function renderCompras(container) {
-  const items = generarListaCompra();
+let _comprasTab = 'lista';
 
-  if (items.length === 0) {
-    container.innerHTML = `
-      <div class="vista">
-        <h1 class="titulo-vista">${ico('compras', 22)} Compras</h1>
-        <p class="subtitulo-vista">Lista de pedido</p>
-        <div class="estado-vacio">
-          <div class="ev-ico" style="background:var(--verde-suave);color:var(--verde)">${ico('check', 30)}</div>
-          <h3>Todo al día</h3>
-          <p>No hay artículos que necesiten reposición. Configura el <strong>stock mínimo</strong> de tus artículos para recibir sugerencias aquí.</p>
-        </div>
+export function renderCompras(container) {
+  const isAdmin = getRole() === 'admin';
+  const items = generarListaCompra();
+  const ordenes = getOrdenes();
+  const pendientes = ordenes.filter(o => o.estado !== 'recibida').length;
+
+  function buildListaTab() {
+    if (!items.length) {
+      return `<div class="estado-vacio">
+        <div class="ev-ico" style="background:var(--verde-suave);color:var(--verde)">${ico('check', 30)}</div>
+        <h3>Todo al día</h3>
+        <p>No hay artículos que necesiten reposición. Configura el <strong>stock mínimo</strong> de tus artículos para recibir sugerencias aquí.</p>
+        ${isAdmin ? `<button class="btn btn-primario" id="btn-nueva-orden-manual">${ico('mas', 16)} Crear orden manual</button>` : ''}
       </div>`;
-    return;
+    }
+    const porProv = {};
+    items.forEach(item => {
+      const prov = item.supplier || 'Sin proveedor';
+      if (!porProv[prov]) porProv[prov] = [];
+      porProv[prov].push(item);
+    });
+    const gruposHtml = Object.entries(porProv).map(([prov, grupo]) => `
+      <div class="bloque">
+        <div class="compra-prov-cab">
+          ${ico('proveedor', 15)} <span>${escape(prov)}</span>
+          <span class="insignia ins-azul">${grupo.length}</span>
+        </div>
+        ${grupo.map(item => `
+          <div class="compra-item" data-id="${item.id}">
+            <div class="compra-info">
+              <div class="compra-nombre">${escape(item.name)}${item.code ? ` <span class="art-codigo">#${escape(item.code)}</span>` : ''}</div>
+              <div class="compra-meta">
+                ${item.motivo === 'bajo'
+                  ? `<span class="insignia ins-roja">${ico('alerta', 11)} Stock: ${item.currentStock}/${item.minStock} ${item.unit}</span>`
+                  : `<span class="insignia ins-ambar">${ico('pronostico', 11)} Se agota en ~${item.dias}d</span>`}
+                ${item.cost > 0 ? `<span class="insignia ins-azul">${ico('valor', 11)} $${fmtMoneda(item.cost)}/u</span>` : ''}
+              </div>
+            </div>
+            <div class="compra-qty-ctrl">
+              <button class="compra-qty-btn" data-dir="-1" data-id="${item.id}">−</button>
+              <input type="number" class="compra-qty" data-id="${item.id}" value="${item.sugerido}" min="1" step="1">
+              <button class="compra-qty-btn" data-dir="1" data-id="${item.id}">+</button>
+              <span class="compra-unit">${escape(item.unit)}</span>
+            </div>
+          </div>`).join('')}
+      </div>`).join('');
+
+    return `
+      <p style="color:var(--texto-suave);font-size:.88rem;margin:0 0 16px">Artículos con stock bajo o que se agotarán pronto. Ajusta cantidades y genera la orden.</p>
+      ${gruposHtml}
+      <div class="compra-bar">
+        <button class="btn btn-secundario" id="btn-compra-copiar">${ico('compartir', 16)} Copiar lista</button>
+        <button class="btn btn-secundario" id="btn-compra-imprimir">${ico('imprimir', 16)} Imprimir</button>
+        ${isAdmin ? `<button class="btn btn-primario" id="btn-crear-orden">${ico('compras', 16)} Crear orden de compra</button>` : ''}
+      </div>`;
   }
 
-  // Group by supplier
-  const porProveedor = {};
-  items.forEach(item => {
-    const prov = item.supplier || 'Sin proveedor';
-    if (!porProveedor[prov]) porProveedor[prov] = [];
-    porProveedor[prov].push(item);
-  });
+  function estadoBadge(estado) {
+    if (estado === 'borrador') return `<span class="insignia ins-azul">${ico('editar', 11)} Borrador</span>`;
+    if (estado === 'enviada') return `<span class="insignia ins-ambar">${ico('enviar', 11)} Enviada</span>`;
+    return `<span class="insignia ins-verde">${ico('check', 11)} Recibida</span>`;
+  }
 
-  const itemsHtml = Object.entries(porProveedor).map(([prov, grupo]) => `
-    <div class="bloque">
-      <div class="compra-prov-cab">
-        ${ico('proveedor', 15)} <span>${escape(prov)}</span>
-        <span class="insignia ins-azul">${grupo.length}</span>
-      </div>
-      ${grupo.map(item => `
-        <div class="compra-item" data-id="${item.id}">
-          <div class="compra-info">
-            <div class="compra-nombre">${escape(item.name)}${item.code ? ` <span class="art-codigo">#${escape(item.code)}</span>` : ''}</div>
-            <div class="compra-meta">
-              ${item.motivo === 'bajo'
-                ? `<span class="insignia ins-roja">${ico('alerta', 11)} Stock: ${item.currentStock}/${item.minStock} ${item.unit}</span>`
-                : `<span class="insignia ins-ambar">${ico('pronostico', 11)} Se agota en ~${item.dias}d</span>`}
-              ${item.cost > 0 ? `<span class="insignia ins-azul">${ico('valor', 11)} $${fmtMoneda(item.cost)}/u</span>` : ''}
+  function buildOrdenesTab() {
+    if (!ordenes.length) {
+      return `<div class="estado-vacio">
+        <div class="ev-ico">${ico('compras', 30)}</div>
+        <h3>Sin órdenes de compra</h3>
+        <p>Las órdenes de compra te permiten gestionar pedidos a proveedores desde el borrador hasta la recepción de mercancía.</p>
+        ${isAdmin ? `<button class="btn btn-primario" id="btn-nueva-orden-vacio">${ico('mas', 16)} Nueva orden</button>` : ''}
+      </div>`;
+    }
+    return ordenes.map(o => {
+      const totalCost = o.items.reduce((s, i) => s + (i.unitCost || 0) * (i.qty || 0), 0);
+      return `<div class="bloque orden-card" data-id="${o.id}">
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-weight:800;font-size:1rem">${escape(o.numero)}</span>
+              ${estadoBadge(o.estado)}
             </div>
+            <div style="font-size:.82rem;color:var(--texto-suave)">
+              ${o.proveedor ? `${ico('proveedor', 12)} ${escape(o.proveedor)} · ` : ''}
+              ${o.items.length} artículo${o.items.length !== 1 ? 's' : ''}
+              ${totalCost > 0 ? ` · $${fmtMoneda(totalCost)}` : ''}
+            </div>
+            <div style="font-size:.78rem;color:var(--texto-tenue);margin-top:2px">${fmtFecha(o.createdAt)}</div>
           </div>
-          <div class="compra-qty-ctrl">
-            <button class="compra-qty-btn" data-dir="-1" data-id="${item.id}">−</button>
-            <input type="number" class="compra-qty" data-id="${item.id}" value="${item.sugerido}" min="1" step="1">
-            <button class="compra-qty-btn" data-dir="1" data-id="${item.id}">+</button>
-            <span class="compra-unit">${escape(item.unit)}</span>
-          </div>
-        </div>`).join('')}
-    </div>`).join('');
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-secundario" data-ord-ver="${o.id}">${ico('lista', 14)} Ver</button>
+          ${isAdmin && o.estado === 'borrador' ? `
+            <button class="btn btn-sm btn-secundario" data-ord-editar="${o.id}">${ico('editar', 14)} Editar</button>
+            <button class="btn btn-sm btn-primario" data-ord-enviar="${o.id}" style="background:var(--ambar)">${ico('enviar', 14)} Enviar</button>
+            <button class="btn btn-sm btn-secundario" data-ord-del="${o.id}" style="color:var(--rojo)">${ico('eliminar', 14)}</button>
+          ` : ''}
+          ${isAdmin && o.estado === 'enviada' ? `
+            <button class="btn btn-sm btn-primario" data-ord-recibir="${o.id}">${ico('recibir', 14)} Recibir</button>
+            <button class="btn btn-sm btn-secundario" data-ord-cancelar="${o.id}">Cancelar envío</button>
+          ` : ''}
+          ${o.estado === 'recibida' ? `<button class="btn btn-sm btn-secundario" data-ord-imprimir="${o.id}">${ico('imprimir', 14)} Imprimir</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
 
   container.innerHTML = `
-    <div class="vista" style="padding-bottom:88px">
+    <div class="vista" style="padding-bottom:20px">
       <div class="cab-vista">
         <div>
           <h1 class="titulo-vista">${ico('compras', 22)} Compras</h1>
-          <p class="subtitulo-vista">${items.length} artículo${items.length !== 1 ? 's' : ''} para pedir</p>
+          <p class="subtitulo-vista">Pedidos y órdenes de compra</p>
         </div>
+        ${isAdmin ? `<button class="btn btn-primario" id="btn-nueva-orden-cab">${ico('mas', 16)} Nueva orden</button>` : ''}
       </div>
-      <p style="color:var(--texto-suave);font-size:.88rem;margin:0 0 16px">Artículos con stock bajo o que se agotarán pronto según su historial de consumo. Ajusta las cantidades y genera la orden.</p>
-      ${itemsHtml}
-      <div class="compra-bar">
-        <button class="btn btn-secundario" id="btn-compra-copiar">${ico('compartir', 16)} Copiar lista</button>
-        <button class="btn btn-primario" id="btn-compra-imprimir">${ico('imprimir', 16)} Imprimir orden</button>
+
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--borde);margin-bottom:20px">
+        <button class="compras-tab${_comprasTab==='lista'?' compras-tab-activo':''}" data-tab="lista">
+          ${ico('lista', 15)} Lista de pedido${items.length ? ` <span class="insignia ins-roja" style="margin-left:4px">${items.length}</span>` : ''}
+        </button>
+        <button class="compras-tab${_comprasTab==='ordenes'?' compras-tab-activo':''}" data-tab="ordenes">
+          ${ico('compras', 15)} Órdenes${pendientes ? ` <span class="insignia ins-azul" style="margin-left:4px">${pendientes}</span>` : ''}
+        </button>
       </div>
+
+      <div id="tab-lista" ${_comprasTab !== 'lista' ? 'hidden' : ''}>${buildListaTab()}</div>
+      <div id="tab-ordenes" ${_comprasTab !== 'ordenes' ? 'hidden' : ''}>${buildOrdenesTab()}</div>
     </div>`;
 
-  // +/- buttons
+  // Tab switching
+  container.querySelectorAll('.compras-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _comprasTab = btn.dataset.tab;
+      container.querySelectorAll('.compras-tab').forEach(b => b.classList.toggle('compras-tab-activo', b.dataset.tab === _comprasTab));
+      container.querySelector('#tab-lista').hidden = _comprasTab !== 'lista';
+      container.querySelector('#tab-ordenes').hidden = _comprasTab !== 'ordenes';
+    });
+  });
+
+  // Lista: +/- qty
   container.addEventListener('click', e => {
     const btn = e.target.closest('.compra-qty-btn');
     if (!btn) return;
     const inp = container.querySelector(`.compra-qty[data-id="${btn.dataset.id}"]`);
-    if (!inp) return;
-    const dir = parseInt(btn.dataset.dir);
-    inp.value = Math.max(1, (parseInt(inp.value) || 1) + dir);
+    if (inp) inp.value = Math.max(1, (parseInt(inp.value) || 1) + parseInt(btn.dataset.dir));
   });
 
-  container.querySelector('#btn-compra-copiar').addEventListener('click', () => {
+  // Lista: copiar
+  container.querySelector('#btn-compra-copiar')?.addEventListener('click', () => {
     const lineas = [...container.querySelectorAll('.compra-item')].map(el => {
-      const id = el.dataset.id;
-      const item = items.find(i => i.id === id);
-      const qty = el.querySelector('.compra-qty').value;
-      return `• ${item.name}: ${qty} ${item.unit}${item.supplier ? ` (${item.supplier})` : ''}`;
+      const item = items.find(i => i.id === el.dataset.id);
+      return `• ${item.name}: ${el.querySelector('.compra-qty')?.value} ${item.unit}${item.supplier ? ` (${item.supplier})` : ''}`;
     });
-    const texto = `📦 Lista de pedido — ${new Date().toLocaleDateString('es-MX')}\n\n${lineas.join('\n')}`;
+    const texto = `Lista de pedido — ${new Date().toLocaleDateString('es-MX')}\n\n${lineas.join('\n')}`;
     if (navigator.share) {
       navigator.share({ title: 'Lista de pedido', text: texto }).catch(() => {});
     } else {
@@ -1280,15 +1694,299 @@ export function renderCompras(container) {
     }
   });
 
-  container.querySelector('#btn-compra-imprimir').addEventListener('click', () => {
+  // Lista: imprimir
+  container.querySelector('#btn-compra-imprimir')?.addEventListener('click', () => {
     const orden = [...container.querySelectorAll('.compra-item')].map(el => {
-      const id = el.dataset.id;
-      const item = items.find(i => i.id === id);
-      const qty = parseInt(el.querySelector('.compra-qty').value) || 1;
-      return { item, qty };
+      const item = items.find(i => i.id === el.dataset.id);
+      return { item, qty: parseInt(el.querySelector('.compra-qty')?.value) || 1 };
     });
     imprimirOrden(orden);
   });
+
+  // Lista: crear orden desde sugerencias
+  const getItemsFromLista = () => [...container.querySelectorAll('.compra-item')].map(el => {
+    const item = items.find(i => i.id === el.dataset.id);
+    const qty = parseInt(el.querySelector('.compra-qty')?.value) || item?.sugerido || 1;
+    return { articuloId: item.id, nombre: item.name, qty, unitCost: item.cost || 0, unit: item.unit };
+  });
+
+  container.querySelector('#btn-crear-orden')?.addEventListener('click', () => {
+    modalOrden(null, getItemsFromLista());
+  });
+  container.querySelector('#btn-nueva-orden-manual')?.addEventListener('click', () => modalOrden(null, []));
+  container.querySelector('#btn-nueva-orden-vacio')?.addEventListener('click', () => modalOrden(null, []));
+  container.querySelector('#btn-nueva-orden-cab')?.addEventListener('click', () => modalOrden(null, []));
+
+  // Órdenes: event delegation
+  container.querySelector('#tab-ordenes')?.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-ord-ver],[data-ord-editar],[data-ord-enviar],[data-ord-recibir],[data-ord-cancelar],[data-ord-del],[data-ord-imprimir]');
+    if (!btn) return;
+    const ord = ordenes.find(o => o.id === (btn.dataset.ordVer || btn.dataset.ordEditar || btn.dataset.ordEnviar || btn.dataset.ordRecibir || btn.dataset.ordCancelar || btn.dataset.ordDel || btn.dataset.ordImprimir));
+    if (!ord) return;
+
+    if (btn.dataset.ordVer !== undefined) { modalVerOrden(ord); return; }
+    if (btn.dataset.ordEditar !== undefined) { modalOrden(ord, null); return; }
+    if (btn.dataset.ordEnviar !== undefined) {
+      const ok = await confirmacion(`¿Marcar ${ord.numero} como enviada?`);
+      if (ok) { await updateOrden(ord.id, { estado: 'enviada' }); toast('Orden enviada', 'exito'); }
+      return;
+    }
+    if (btn.dataset.ordCancelar !== undefined) {
+      const ok = await confirmacion(`¿Cancelar el envío de ${ord.numero} y volver a Borrador?`);
+      if (ok) { await updateOrden(ord.id, { estado: 'borrador' }); toast('Orden devuelta a borrador', 'info'); }
+      return;
+    }
+    if (btn.dataset.ordRecibir !== undefined) { modalRecibirOrden(ord); return; }
+    if (btn.dataset.ordDel !== undefined) {
+      const ok = await confirmacion(`¿Eliminar ${ord.numero}?`, { peligro: true });
+      if (ok) { await deleteOrden(ord.id); toast('Orden eliminada', 'info'); }
+      return;
+    }
+    if (btn.dataset.ordImprimir !== undefined) { imprimirOrdenGuardada(ord); return; }
+  });
+}
+
+function modalOrden(orden, preItems) {
+  const arts = articulosActivos().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const esNueva = !orden;
+  let ordenItems = preItems ?? (orden?.items ? [...orden.items] : []);
+
+  function renderItemsTable(fondo) {
+    const tbody = fondo.querySelector('#ord-items-tbody');
+    if (!tbody) return;
+    if (!ordenItems.length) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--texto-tenue);padding:12px">Sin artículos. Agrega artículos abajo.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = ordenItems.map((item, idx) => `
+      <tr>
+        <td style="font-size:.88rem">${escape(item.nombre)}</td>
+        <td><input type="number" class="ord-item-qty" data-idx="${idx}" value="${item.qty}" min="1" style="width:70px;min-height:32px;text-align:center;padding:2px 6px"></td>
+        <td style="font-size:.84rem;color:var(--texto-suave)">${item.unit || ''}</td>
+        <td><button class="btn btn-sm btn-secundario ord-item-rm" data-idx="${idx}" style="padding:4px 8px;color:var(--rojo)">×</button></td>
+      </tr>`).join('');
+  }
+
+  const cuerpo = `<div class="form" style="min-height:280px">
+    <div class="fila-2">
+      <div class="campo">
+        <label>Proveedor</label>
+        <input id="ord-prov" type="text" placeholder="Ej: Distribuidora Norte" value="${orden ? escape(orden.proveedor) : ''}">
+      </div>
+      <div class="campo">
+        <label>Notas</label>
+        <input id="ord-notas" type="text" placeholder="Ej: Entrega urgente" value="${orden ? escape(orden.notas) : ''}">
+      </div>
+    </div>
+    <div class="campo">
+      <label>Artículos a pedir</label>
+      <div class="tabla-scroll" style="max-height:200px;overflow-y:auto">
+        <table class="tabla" style="table-layout:fixed">
+          <thead><tr><th>Artículo</th><th style="width:80px">Cantidad</th><th style="width:60px">Unidad</th><th style="width:40px"></th></tr></thead>
+          <tbody id="ord-items-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="campo" style="flex:1;min-width:160px;margin:0">
+        <label style="font-size:.8rem">Agregar artículo</label>
+        <select id="ord-add-art" style="min-height:36px;font-size:.85rem">
+          <option value="">Seleccionar…</option>
+          ${arts.map(a => `<option value="${a.id}" data-name="${escape(a.name)}" data-unit="${escape(a.unit)}" data-cost="${a.cost||0}">${escape(a.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="campo" style="width:70px;margin:0">
+        <label style="font-size:.8rem">Cant.</label>
+        <input type="number" id="ord-add-qty" value="1" min="1" style="min-height:36px;text-align:center">
+      </div>
+      <button class="btn btn-sm btn-secundario" id="btn-ord-add" style="flex-shrink:0;align-self:flex-end">${ico('mas', 14)} Agregar</button>
+    </div>
+  </div>`;
+
+  const fondo = openModal({
+    titulo: esNueva ? `${ico('mas', 18)} Nueva orden de compra` : `${ico('editar', 18)} Editar ${orden.numero}`,
+    cuerpo,
+    acciones: `<button class="btn btn-secundario" id="ord-cancel">Cancelar</button>
+               <button class="btn btn-primario" id="ord-guardar">${ico('guardar', 16)} Guardar borrador</button>`,
+    ancho: 580,
+  });
+
+  renderItemsTable(fondo);
+
+  fondo.querySelector('#ord-cancel').addEventListener('click', closeModal);
+
+  fondo.querySelector('#btn-ord-add').addEventListener('click', () => {
+    const sel = fondo.querySelector('#ord-add-art');
+    const qtyInp = fondo.querySelector('#ord-add-qty');
+    const opt = sel.options[sel.selectedIndex];
+    if (!sel.value || !opt) return;
+    const qty = parseInt(qtyInp.value) || 1;
+    const existing = ordenItems.find(i => i.articuloId === sel.value);
+    if (existing) { existing.qty += qty; }
+    else {
+      ordenItems.push({
+        articuloId: sel.value,
+        nombre: opt.dataset.name,
+        qty,
+        unitCost: parseFloat(opt.dataset.cost) || 0,
+        unit: opt.dataset.unit,
+      });
+    }
+    sel.value = '';
+    qtyInp.value = 1;
+    renderItemsTable(fondo);
+  });
+
+  fondo.querySelector('#ord-items-tbody').addEventListener('click', e => {
+    const rmBtn = e.target.closest('.ord-item-rm');
+    if (rmBtn) {
+      ordenItems.splice(parseInt(rmBtn.dataset.idx), 1);
+      renderItemsTable(fondo);
+      return;
+    }
+    const qtyInp = e.target.closest('.ord-item-qty');
+    if (qtyInp) {
+      qtyInp.addEventListener('change', () => {
+        const idx = parseInt(qtyInp.dataset.idx);
+        if (ordenItems[idx]) ordenItems[idx].qty = parseInt(qtyInp.value) || 1;
+      }, { once: true });
+    }
+  });
+
+  fondo.querySelector('#ord-guardar').addEventListener('click', async () => {
+    const proveedor = fondo.querySelector('#ord-prov').value.trim();
+    const notas = fondo.querySelector('#ord-notas').value.trim();
+    // capture current qty values before closing
+    fondo.querySelectorAll('.ord-item-qty').forEach(inp => {
+      const idx = parseInt(inp.dataset.idx);
+      if (ordenItems[idx]) ordenItems[idx].qty = parseInt(inp.value) || 1;
+    });
+    closeModal();
+    if (esNueva) {
+      await addOrden({ items: ordenItems, proveedor, notas });
+      toast('Orden creada', 'exito');
+    } else {
+      await updateOrden(orden.id, { items: ordenItems, proveedor, notas });
+      toast('Orden actualizada', 'exito');
+    }
+  });
+}
+
+function modalVerOrden(orden) {
+  const totalCost = orden.items.reduce((s, i) => s + (i.unitCost || 0) * (i.qty || 0), 0);
+  const estadoColors = { borrador: 'ins-azul', enviada: 'ins-ambar', recibida: 'ins-verde' };
+  const estadoLabel = { borrador: 'Borrador', enviada: 'Enviada', recibida: 'Recibida' };
+  const filas = orden.items.map(item => `<tr>
+    <td>${escape(item.nombre)}</td>
+    <td class="num">${item.qty}</td>
+    <td>${escape(item.unit || '')}</td>
+    <td class="num">${item.unitCost ? '$' + fmtMoneda(item.unitCost) : '—'}</td>
+    <td class="num">${item.unitCost ? '$' + fmtMoneda(item.unitCost * item.qty) : '—'}</td>
+  </tr>`).join('');
+
+  openModal({
+    titulo: `${ico('compras', 18)} ${escape(orden.numero)}`,
+    cuerpo: `
+      <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="insignia ${estadoColors[orden.estado]}">${estadoLabel[orden.estado]}</span>
+        ${orden.proveedor ? `<span style="font-size:.85rem;color:var(--texto-suave)">${ico('proveedor', 13)} ${escape(orden.proveedor)}</span>` : ''}
+        <span style="font-size:.82rem;color:var(--texto-tenue)">Creada: ${fmtFecha(orden.createdAt)}</span>
+        ${orden.receivedAt ? `<span style="font-size:.82rem;color:var(--verde)">Recibida: ${fmtFecha(orden.receivedAt)}</span>` : ''}
+      </div>
+      ${orden.notas ? `<p style="font-size:.88rem;color:var(--texto-suave);margin:0 0 12px">${escape(orden.notas)}</p>` : ''}
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Artículo</th><th class="num">Cant.</th><th>Unidad</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead>
+          <tbody>${filas.length ? filas : '<tr><td colspan="5" class="vacio">Sin artículos</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${totalCost > 0 ? `<div style="text-align:right;margin-top:10px;font-weight:700;font-size:.95rem">Total estimado: $${fmtMoneda(totalCost)}</div>` : ''}`,
+    acciones: `<button class="btn btn-primario" onclick="this.closest('.modal-fondo').remove()">Cerrar</button>`,
+    ancho: 520,
+  });
+}
+
+async function modalRecibirOrden(orden) {
+  const recItems = orden.items.map(item => ({ ...item, recibido: item.qty }));
+
+  const filas = recItems.map((item, idx) => `<tr>
+    <td style="font-size:.88rem">${escape(item.nombre)}</td>
+    <td class="num">${item.qty}</td>
+    <td><input type="number" class="rec-qty" data-idx="${idx}" value="${item.qty}" min="0" style="width:75px;min-height:32px;text-align:center;padding:2px 6px"></td>
+    <td style="font-size:.82rem;color:var(--texto-suave)">${escape(item.unit || '')}</td>
+  </tr>`).join('');
+
+  const fondo = openModal({
+    titulo: `${ico('recibir', 18)} Recibir ${escape(orden.numero)}`,
+    cuerpo: `
+      <p style="font-size:.88rem;color:var(--texto-suave);margin:0 0 14px">Confirma las cantidades recibidas. Se registrará una <strong>entrada de stock</strong> por cada artículo.</p>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Artículo</th><th class="num">Pedido</th><th class="num">Recibido</th><th>Unidad</th></tr></thead>
+          <tbody>${filas.length ? filas : '<tr><td colspan="4" class="vacio">Sin artículos en esta orden</td></tr>'}</tbody>
+        </table>
+      </div>`,
+    acciones: `<button class="btn btn-secundario" id="rec-cancel">Cancelar</button>
+               <button class="btn btn-primario" id="rec-ok">${ico('check', 16)} Confirmar recepción</button>`,
+    ancho: 500,
+  });
+
+  fondo.querySelector('#rec-cancel').addEventListener('click', closeModal);
+  fondo.querySelector('#rec-ok').addEventListener('click', async () => {
+    const receivedItems = [...fondo.querySelectorAll('.rec-qty')].map(inp => {
+      const idx = parseInt(inp.dataset.idx);
+      return { ...recItems[idx], qty: parseInt(inp.value) || 0 };
+    });
+    closeModal();
+    await receiveOrden(orden.id, receivedItems);
+    toast(`Orden ${orden.numero} recibida — stock actualizado`, 'exito');
+  });
+}
+
+function imprimirOrdenGuardada(orden) {
+  const { nombre } = getEmpresa();
+  const totalCost = orden.items.reduce((s, i) => s + (i.unitCost || 0) * (i.qty || 0), 0);
+  const filas = orden.items.map(item => `<tr>
+    <td><strong>${escape(item.nombre)}</strong></td>
+    <td style="text-align:right">${item.qty}</td>
+    <td>${escape(item.unit || '')}</td>
+    <td style="text-align:right">${item.unitCost ? '$' + fmtMoneda(item.unitCost) : '—'}</td>
+    <td style="text-align:right;font-weight:600">${item.unitCost ? '$' + fmtMoneda(item.unitCost * item.qty) : '—'}</td>
+  </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+    <title>${escape(orden.numero)} — ${escape(nombre)}</title>
+    <style>
+      body{font-family:system-ui,sans-serif;font-size:12px;color:#0f172a;margin:20px}
+      h1{font-size:18px;margin:0 0 2px;color:#1e3a8a} .sub{color:#64748b;font-size:11px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse} th,td{padding:7px 9px;border-bottom:1px solid #e2e8f0;text-align:left}
+      thead th{background:#1e3a8a;color:#fff;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+      .total{margin-top:14px;font-size:14px;font-weight:700;text-align:right;color:#1e3a8a}
+      .info{display:flex;gap:24px;margin-bottom:14px;font-size:11px;color:#64748b}
+      .firm{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+      .firm-box{border-top:1px solid #94a3b8;padding-top:6px;color:#64748b;font-size:11px}
+      @media print{body{margin:8mm}}
+    </style></head><body>
+    <h1>${escape(orden.numero)}</h1>
+    <div class="sub">${escape(nombre)} · Generada: ${fmtFecha(orden.createdAt)}</div>
+    <div class="info">
+      ${orden.proveedor ? `<span><strong>Proveedor:</strong> ${escape(orden.proveedor)}</span>` : ''}
+      <span><strong>Estado:</strong> ${orden.estado}</span>
+      ${orden.receivedAt ? `<span><strong>Recibida:</strong> ${fmtFecha(orden.receivedAt)}</span>` : ''}
+    </div>
+    <table>
+      <thead><tr><th>Artículo</th><th style="text-align:right">Cantidad</th><th>Unidad</th><th style="text-align:right">Precio unit.</th><th style="text-align:right">Subtotal</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>
+    ${totalCost > 0 ? `<div class="total">Total: $${fmtMoneda(totalCost)}</div>` : ''}
+    <div class="firm">
+      <div class="firm-box">Solicitado por: ___________________________</div>
+      <div class="firm-box">Recibido por: ___________________________</div>
+    </div>
+    <script>window.onload=()=>window.print()<\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
 }
 
 function imprimirOrden(orden) {

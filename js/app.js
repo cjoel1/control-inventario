@@ -4,9 +4,9 @@
 
 import { init as initStore, subscribe, getState, setTab } from './store.js';
 import { renderIcons, ico } from './icons.js';
-import { renderInicio, renderArticulos, renderCompras, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding, renderProveedores } from './views.js';
+import { renderInicio, renderArticulos, renderCompras, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding, renderProveedores, renderReportes } from './views.js';
 import { toast, showPINScreen, showHelp } from './ui.js';
-import { getTheme, setTheme, isOnboardingDone, getEmpresa, getPIN, removePIN } from './storage.js';
+import { getTheme, setTheme, isOnboardingDone, getEmpresa, getPIN, removePIN, getRole } from './storage.js';
 import { getActivationStatus, activateWithCode } from './activation.js';
 import { crearSnapshot } from './backup.js';
 import { openDB } from './db.js';
@@ -104,7 +104,8 @@ function applyTheme(tema) {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const TABS = ['inicio', 'articulos', 'compras', 'proveedores', 'historial', 'respaldo', 'ajustes'];
+const TABS = ['inicio', 'articulos', 'compras', 'proveedores', 'historial', 'reportes', 'respaldo', 'ajustes'];
+const ADMIN_TABS = ['reportes', 'respaldo', 'ajustes'];
 
 async function renderTab(tab) {
   const vista = document.getElementById('vista');
@@ -121,6 +122,7 @@ async function renderTab(tab) {
     compras: 'Compras',
     proveedores: 'Proveedores',
     historial: 'Historial',
+    reportes: 'Reportes',
     respaldo: 'Respaldo',
     ajustes: 'Ajustes',
   }[tab] + ' — Control de Inventario';
@@ -131,6 +133,7 @@ async function renderTab(tab) {
     case 'compras':      renderCompras(vista); break;
     case 'proveedores':  renderProveedores(vista); break;
     case 'historial':    renderHistorial(vista); break;
+    case 'reportes':     renderReportes(vista); break;
     case 'respaldo':     await renderRespaldo(vista); break;
     case 'ajustes':      renderAjustes(vista); break;
   }
@@ -139,6 +142,10 @@ async function renderTab(tab) {
 function handleRoute() {
   const hash = location.hash.replace('#/', '') || 'inicio';
   const tab = TABS.includes(hash) ? hash : 'inicio';
+  if (ADMIN_TABS.includes(tab) && getRole() !== 'admin') {
+    location.hash = '#/inicio';
+    return;
+  }
   setTab(tab);
 }
 
@@ -327,12 +334,25 @@ async function startApp() {
   continueAfterPin();
 }
 
+function updateSidebarForRole() {
+  const isAdmin = getRole() === 'admin';
+  document.querySelectorAll('[data-admin-only]').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+  const roleEl = document.getElementById('rol-display');
+  if (roleEl) {
+    roleEl.textContent = isAdmin ? 'Admin' : 'Operador';
+    roleEl.style.color = isAdmin ? 'var(--acento)' : 'var(--ambar)';
+  }
+}
+
 function continueAfterPin() {
   subscribe((state) => {
     if (state.cargado) renderTab(state.tab);
   });
 
   window.addEventListener('hashchange', handleRoute);
+  updateSidebarForRole();
   handleRoute();
   maybeAutoSnapshot();
 

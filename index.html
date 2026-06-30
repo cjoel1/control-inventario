@@ -49,10 +49,13 @@
         <a class="nav-link" data-ruta="historial" href="#/historial">
           <span class="nav-ico" data-ico="historial"></span><span class="nav-txt">Historial</span>
         </a>
-        <a class="nav-link" data-ruta="respaldo" href="#/respaldo">
+        <a class="nav-link" data-ruta="reportes" href="#/reportes" data-admin-only>
+          <span class="nav-ico" data-ico="reportes"></span><span class="nav-txt">Reportes</span>
+        </a>
+        <a class="nav-link" data-ruta="respaldo" href="#/respaldo" data-admin-only>
           <span class="nav-ico" data-ico="respaldo"></span><span class="nav-txt">Respaldo</span>
         </a>
-        <a class="nav-link" data-ruta="ajustes" href="#/ajustes">
+        <a class="nav-link" data-ruta="ajustes" href="#/ajustes" data-admin-only>
           <span class="nav-ico" data-ico="ajustes"></span><span class="nav-txt">Ajustes</span>
         </a>
       </nav>
@@ -64,7 +67,7 @@
         <button class="tema-btn" id="tema-btn" type="button" aria-label="Cambiar tema">
           <span data-ico="ajustes"></span><span class="tema-txt">Tema</span>
         </button>
-        <span class="ver">Offline · v2</span>
+        <span class="ver">Offline · v3 · <span id="rol-display" style="font-weight:700">Admin</span></span>
       </div>
     </aside>
 
