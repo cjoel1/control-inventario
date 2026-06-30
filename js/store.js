@@ -10,6 +10,7 @@ let state = {
   tab: 'inicio',
   articulos: [],
   movimientos: [],
+  proveedores: [],
   config: {},
   categorias: [],
   unidades: [],
@@ -37,14 +38,16 @@ export function getState() {
 }
 
 async function loadData() {
-  const [articulos, movimientos] = await Promise.all([
+  const [articulos, movimientos, proveedores] = await Promise.all([
     getAll('articulos'),
     getAll('movimientos'),
+    getAll('proveedores'),
   ]);
   state = {
     ...state,
     articulos,
     movimientos,
+    proveedores,
     categorias: getCategories(),
     unidades: getUnits(),
     empresa: getEmpresa(),
@@ -331,6 +334,44 @@ export function topConsumidos(n = 5) {
 }
 
 export async function resetData() {
-  await Promise.all([clearStore('articulos'), clearStore('movimientos'), clearStore('snapshots')]);
+  await Promise.all([clearStore('articulos'), clearStore('movimientos'), clearStore('snapshots'), clearStore('proveedores')]);
   await reload();
+}
+
+// ── Suppliers ─────────────────────────────────────────────────────────────────
+
+export function getProveedores() {
+  return [...state.proveedores].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+export async function addProveedor(data) {
+  const prov = {
+    id: genId(),
+    name: data.name,
+    contacto: data.contacto || '',
+    email: data.email || '',
+    telefono: data.telefono || '',
+    direccion: data.direccion || '',
+    notas: data.notas || '',
+    createdAt: Date.now(),
+  };
+  await put('proveedores', prov);
+  state = { ...state, proveedores: [...state.proveedores, prov] };
+  notify();
+  return prov;
+}
+
+export async function updateProveedor(id, data) {
+  const existing = state.proveedores.find(p => p.id === id);
+  if (!existing) return;
+  const updated = { ...existing, ...data };
+  await put('proveedores', updated);
+  state = { ...state, proveedores: state.proveedores.map(p => p.id === id ? updated : p) };
+  notify();
+}
+
+export async function deleteProveedor(id) {
+  await del('proveedores', id);
+  state = { ...state, proveedores: state.proveedores.filter(p => p.id !== id) };
+  notify();
 }

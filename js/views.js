@@ -7,6 +7,7 @@ import {
   articulosSinStock, articulosPorVencer, articulosVencidos,
   filteredArticulos, filteredMovimientos, calcInventoryValue, topConsumidos,
   calcDiasRestantes, articulosPorAgotar, generarListaCompra,
+  getProveedores, addProveedor, updateProveedor, deleteProveedor,
   addArticulo, updateArticulo, archiveArticulo, unarchiveArticulo,
   addMovimiento, bulkAjuste, setFiltroArticulos, setFiltroHistorial, resetData
 } from './store.js';
@@ -1443,4 +1444,130 @@ export function renderOnboarding(container, onDone) {
     markOnboardingDone(); onDone();
   });
   container.querySelector('#ob-vacio').addEventListener('click', () => { markOnboardingDone(); onDone(); });
+}
+
+// ── PROVEEDORES ───────────────────────────────────────────────────────────────
+
+export function renderProveedores(container) {
+  const provs = getProveedores();
+  const state = getState();
+
+  function artsByProv(name) {
+    return state.articulos.filter(a => a.supplier === name && !a.archived);
+  }
+
+  function avatarLetter(name) {
+    return escape(name.trim().charAt(0).toUpperCase()) || 'P';
+  }
+
+  function renderCards() {
+    const list = getProveedores();
+    const grid = container.querySelector('#prov-grid');
+    if (!grid) return;
+    if (!list.length) {
+      grid.innerHTML = `<div class="estado-vacio" style="grid-column:1/-1">
+        <div class="ev-ico">${ico('proveedor', 32)}</div>
+        <h3>Sin proveedores registrados</h3>
+        <p>Agrega tus proveedores para vincularlos a tus artículos y generar órdenes de compra más completas.</p>
+        <button class="btn btn-primario" id="prov-add-empty">${ico('mas', 16)} Agregar proveedor</button>
+      </div>`;
+      grid.querySelector('#prov-add-empty')?.addEventListener('click', modalProv);
+      return;
+    }
+    grid.innerHTML = list.map(p => {
+      const arts = artsByProv(p.name);
+      return `<div class="prov-card" data-id="${p.id}">
+        <div class="prov-cab">
+          <div class="prov-avatar">${avatarLetter(p.name)}</div>
+          <div class="prov-info">
+            <div class="prov-nombre">${escape(p.name)}</div>
+            ${p.contacto ? `<div class="prov-contacto">${escape(p.contacto)}</div>` : ''}
+          </div>
+        </div>
+        <div class="prov-meta">
+          ${p.telefono ? `<div class="prov-fila">${ico('telefono', 14)} ${escape(p.telefono)}</div>` : ''}
+          ${p.email ? `<div class="prov-fila">${ico('correo', 14)} ${escape(p.email)}</div>` : ''}
+          ${p.direccion ? `<div class="prov-fila">${ico('ubicacion', 14)} ${escape(p.direccion)}</div>` : ''}
+        </div>
+        <div class="prov-foot">
+          <span class="prov-count">${arts.length} artículo${arts.length !== 1 ? 's' : ''}</span>
+          <div class="acciones-celda">
+            <button class="btn-icono prov-edit" data-id="${p.id}" title="Editar">${ico('editar', 16)}</button>
+            <button class="btn-icono peligro prov-del" data-id="${p.id}" title="Eliminar">${ico('eliminar', 16)}</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.prov-edit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const p = getProveedores().find(x => x.id === btn.dataset.id);
+        if (p) modalProv(p);
+      });
+    });
+    grid.querySelectorAll('.prov-del').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const p = getProveedores().find(x => x.id === btn.dataset.id);
+        if (!p) return;
+        const ok = await confirmacion(`¿Eliminar al proveedor "${p.name}"?`, { peligro: true });
+        if (ok) { await deleteProveedor(p.id); renderCards(); toast('Proveedor eliminado', 'aviso'); }
+      });
+    });
+  }
+
+  function modalProv(existing) {
+    const esEdicion = !!existing;
+    const cuerpo = `<div class="form">
+      <div class="fila-2">
+        <div class="campo"><label>Nombre *</label><input id="pv-nombre" value="${existing ? escape(existing.name) : ''}" placeholder="Ej: Distribuidora Norte"></div>
+        <div class="campo"><label>Persona de contacto</label><input id="pv-contacto" value="${existing ? escape(existing.contacto) : ''}" placeholder="Ej: Juan Pérez"></div>
+      </div>
+      <div class="fila-2">
+        <div class="campo"><label>Teléfono</label><input id="pv-tel" type="tel" value="${existing ? escape(existing.telefono) : ''}" placeholder="+52 55 1234 5678"></div>
+        <div class="campo"><label>Correo electrónico</label><input id="pv-email" type="email" value="${existing ? escape(existing.email) : ''}" placeholder="ventas@proveedor.com"></div>
+      </div>
+      <div class="campo"><label>Dirección</label><input id="pv-dir" value="${existing ? escape(existing.direccion) : ''}" placeholder="Calle, Ciudad"></div>
+      <div class="campo"><label>Notas</label><textarea id="pv-notas" rows="2" placeholder="Condiciones de pago, tiempos de entrega…">${existing ? escape(existing.notas) : ''}</textarea></div>
+    </div>`;
+    const fondo = openModal({
+      titulo: `${ico(esEdicion ? 'editar' : 'mas', 18)} ${esEdicion ? 'Editar' : 'Nuevo'} proveedor`,
+      cuerpo,
+      acciones: `<button class="btn btn-secundario" id="pv-cancel">Cancelar</button>
+                 <button class="btn btn-primario" id="pv-guardar">${ico('guardar', 16)} Guardar</button>`,
+      ancho: 560,
+    });
+    fondo.querySelector('#pv-cancel').addEventListener('click', closeModal);
+    fondo.querySelector('#pv-guardar').addEventListener('click', async () => {
+      const nombre = fondo.querySelector('#pv-nombre').value.trim();
+      if (!nombre) { toast('El nombre es obligatorio', 'error'); return; }
+      const data = {
+        name: nombre,
+        contacto: fondo.querySelector('#pv-contacto').value.trim(),
+        telefono: fondo.querySelector('#pv-tel').value.trim(),
+        email: fondo.querySelector('#pv-email').value.trim(),
+        direccion: fondo.querySelector('#pv-dir').value.trim(),
+        notas: fondo.querySelector('#pv-notas').value.trim(),
+      };
+      if (esEdicion) { await updateProveedor(existing.id, data); toast('Proveedor actualizado', 'exito'); }
+      else { await addProveedor(data); toast('Proveedor agregado', 'exito'); }
+      closeModal();
+      renderCards();
+    });
+  }
+
+  container.innerHTML = `<div class="vista">
+    <div class="cab-vista">
+      <div>
+        <h1 class="titulo-vista">${ico('proveedor', 26)} Proveedores</h1>
+        <p class="subtitulo-vista">Gestiona tus contactos y empresas proveedoras</p>
+      </div>
+      <button class="btn btn-primario" id="prov-nuevo">${ico('mas', 16)} Nuevo proveedor</button>
+    </div>
+    <div class="prov-grid" id="prov-grid"></div>
+  </div>`;
+
+  container.querySelector('#prov-nuevo').addEventListener('click', () => modalProv());
+  renderCards();
 }

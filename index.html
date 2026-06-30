@@ -8,25 +8,21 @@
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#1e3a8a" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0a0f1c" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#4f6ef7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#06091a" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="icons/icono.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icono-192.png">
-  <!-- Android Chrome PWA -->
   <meta name="mobile-web-app-capable" content="yes">
-  <!-- iOS fallback -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Inventario">
 
-  <!-- Tipografía profesional vendorizada (no usa CDN). Precarga de los pesos clave. -->
   <link rel="preload" href="vendor/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="vendor/fonts/inter-600.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <div class="app">
-    <!-- Barra lateral (en tablet/horizontal) · barra superior (en móvil) -->
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark" id="brand-mark">I</span>
@@ -47,6 +43,9 @@
         <a class="nav-link" data-ruta="compras" href="#/compras">
           <span class="nav-ico" data-ico="compras"></span><span class="nav-txt">Compras</span>
         </a>
+        <a class="nav-link" data-ruta="proveedores" href="#/proveedores">
+          <span class="nav-ico" data-ico="proveedor"></span><span class="nav-txt">Proveedores</span>
+        </a>
         <a class="nav-link" data-ruta="historial" href="#/historial">
           <span class="nav-ico" data-ico="historial"></span><span class="nav-txt">Historial</span>
         </a>
@@ -65,7 +64,7 @@
         <button class="tema-btn" id="tema-btn" type="button" aria-label="Cambiar tema">
           <span data-ico="ajustes"></span><span class="tema-txt">Tema</span>
         </button>
-        <span class="ver">Offline · v1</span>
+        <span class="ver">Offline · v2</span>
       </div>
     </aside>
 

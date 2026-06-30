@@ -9,7 +9,7 @@
  * -------------------------------------------------------------
  */
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `control-inventario-${VERSION}`;
 
 /** Recursos que componen la app shell (disponibles sin internet). */

@@ -4,7 +4,7 @@
 
 import { init as initStore, subscribe, getState, setTab } from './store.js';
 import { renderIcons, ico } from './icons.js';
-import { renderInicio, renderArticulos, renderCompras, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding } from './views.js';
+import { renderInicio, renderArticulos, renderCompras, renderHistorial, renderRespaldo, renderAjustes, renderOnboarding, renderProveedores } from './views.js';
 import { toast, showPINScreen, showHelp } from './ui.js';
 import { getTheme, setTheme, isOnboardingDone, getEmpresa, getPIN, removePIN } from './storage.js';
 import { getActivationStatus, activateWithCode } from './activation.js';
@@ -104,16 +104,13 @@ function applyTheme(tema) {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const TABS = ['inicio', 'articulos', 'compras', 'historial', 'respaldo', 'ajustes'];
+const TABS = ['inicio', 'articulos', 'compras', 'proveedores', 'historial', 'respaldo', 'ajustes'];
 
 async function renderTab(tab) {
   const vista = document.getElementById('vista');
   vista.innerHTML = '<div class="cargando"><span class="spinner"></span> Cargando…</div>';
-
-  // Scroll to top on tab change
   vista.scrollTo(0, 0);
 
-  // Update nav
   document.querySelectorAll('.nav-link').forEach(link => {
     link.classList.toggle('activo', link.dataset.ruta === tab);
   });
@@ -122,18 +119,20 @@ async function renderTab(tab) {
     inicio: 'Inicio',
     articulos: 'Artículos',
     compras: 'Compras',
+    proveedores: 'Proveedores',
     historial: 'Historial',
     respaldo: 'Respaldo',
     ajustes: 'Ajustes',
   }[tab] + ' — Control de Inventario';
 
   switch (tab) {
-    case 'inicio':     renderInicio(vista); break;
-    case 'articulos':  renderArticulos(vista); break;
-    case 'compras':    renderCompras(vista); break;
-    case 'historial':  renderHistorial(vista); break;
-    case 'respaldo':   await renderRespaldo(vista); break;
-    case 'ajustes':    renderAjustes(vista); break;
+    case 'inicio':       renderInicio(vista); break;
+    case 'articulos':    renderArticulos(vista); break;
+    case 'compras':      renderCompras(vista); break;
+    case 'proveedores':  renderProveedores(vista); break;
+    case 'historial':    renderHistorial(vista); break;
+    case 'respaldo':     await renderRespaldo(vista); break;
+    case 'ajustes':      renderAjustes(vista); break;
   }
 }
 
@@ -165,10 +164,125 @@ function updateBrand() {
 async function maybeAutoSnapshot() {
   try {
     const state = getState();
-    if (state.articulos.length > 0) {
-      await crearSnapshot(false);
-    }
+    if (state.articulos.length > 0) await crearSnapshot(false);
   } catch { /* silent */ }
+}
+
+// ── Command palette ───────────────────────────────────────────────────────────
+
+function initCommandPalette() {
+  const fondo = document.createElement('div');
+  fondo.className = 'cmd-fondo';
+  fondo.id = 'cmd-fondo';
+  fondo.innerHTML = `
+    <div class="cmd-box" role="dialog" aria-label="Búsqueda rápida">
+      <div class="cmd-barra">
+        ${ico('paleta', 20)}
+        <input class="cmd-input" id="cmd-input" placeholder="Buscar artículos o ir a una sección…" autocomplete="off" spellcheck="false">
+        <span class="cmd-kb">Esc</span>
+      </div>
+      <div class="cmd-resultados" id="cmd-resultados"></div>
+    </div>`;
+  document.body.appendChild(fondo);
+
+  const SECCIONES = [
+    { label: 'Inicio', ruta: 'inicio', icon: 'inicio' },
+    { label: 'Artículos', ruta: 'articulos', icon: 'paquete' },
+    { label: 'Compras', ruta: 'compras', icon: 'compras' },
+    { label: 'Proveedores', ruta: 'proveedores', icon: 'proveedor' },
+    { label: 'Historial', ruta: 'historial', icon: 'historial' },
+    { label: 'Respaldo', ruta: 'respaldo', icon: 'respaldo' },
+    { label: 'Ajustes', ruta: 'ajustes', icon: 'ajustes' },
+  ];
+
+  let activeIdx = -1;
+
+  function open() {
+    fondo.classList.add('visible');
+    document.getElementById('cmd-input').value = '';
+    renderResults('');
+    setTimeout(() => document.getElementById('cmd-input')?.focus(), 60);
+  }
+
+  function close() {
+    fondo.classList.remove('visible');
+    activeIdx = -1;
+  }
+
+  function navigate(ruta) {
+    close();
+    location.hash = `#/${ruta}`;
+  }
+
+  function renderResults(q) {
+    const res = document.getElementById('cmd-resultados');
+    q = q.toLowerCase().trim();
+
+    const secs = SECCIONES.filter(s => !q || s.label.toLowerCase().includes(q));
+    const arts = getState().articulos
+      .filter(a => !a.archived && (!q || a.name.toLowerCase().includes(q) || (a.code || '').toLowerCase().includes(q)))
+      .slice(0, 8);
+
+    let html = '';
+    if (secs.length) {
+      html += `<div class="cmd-grupo-titulo">Secciones</div>`;
+      html += secs.map((s, i) => `<div class="cmd-item" data-ruta="${s.ruta}" data-idx="${i}">${ico(s.icon, 18)} ${s.label}</div>`).join('');
+    }
+    if (arts.length) {
+      const off = secs.length;
+      html += `<div class="cmd-grupo-titulo">Artículos</div>`;
+      html += arts.map((a, i) => `<div class="cmd-item" data-art="${a.id}" data-idx="${off + i}">
+        ${ico('paquete', 18)}
+        <span>${a.name}</span>
+        <span class="cmd-item-stock">${a.currentStock} ${a.unit}</span>
+      </div>`).join('');
+    }
+    if (!html) html = `<div class="cmd-vacio">Sin resultados para "${q}"</div>`;
+    res.innerHTML = html;
+    activeIdx = -1;
+
+    res.querySelectorAll('.cmd-item').forEach(el => {
+      el.addEventListener('click', () => {
+        if (el.dataset.ruta) navigate(el.dataset.ruta);
+        else if (el.dataset.art) { navigate('articulos'); }
+      });
+    });
+  }
+
+  function moveActive(dir) {
+    const items = document.querySelectorAll('.cmd-item');
+    if (!items.length) return;
+    items.forEach(el => el.classList.remove('activo'));
+    activeIdx = (activeIdx + dir + items.length) % items.length;
+    items[activeIdx].classList.add('activo');
+    items[activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  document.getElementById('cmd-input').addEventListener('input', e => {
+    renderResults(e.target.value);
+  });
+
+  document.getElementById('cmd-input').addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1); }
+    else if (e.key === 'Enter') {
+      const active = document.querySelector('.cmd-item.activo');
+      if (active) {
+        if (active.dataset.ruta) navigate(active.dataset.ruta);
+        else if (active.dataset.art) { navigate('articulos'); }
+      }
+    } else if (e.key === 'Escape') close();
+  });
+
+  fondo.addEventListener('click', e => { if (e.target === fondo) close(); });
+
+  window.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      fondo.classList.contains('visible') ? close() : open();
+    }
+    if (e.key === 'Escape' && fondo.classList.contains('visible')) close();
+  });
 }
 
 // ── App start ─────────────────────────────────────────────────────────────────
@@ -177,19 +291,12 @@ async function startApp() {
   await openDB();
   await initStore();
 
-  const state = getState();
-
-  // Icons
   renderIcons();
-
-  // Brand
   updateBrand();
 
-  // Onboarding
   if (!isOnboardingDone()) {
     const vista = document.getElementById('vista');
     renderOnboarding(vista, () => {
-      // After onboarding, check PIN then start normal app flow
       const pin = getPIN();
       if (pin) {
         showPINScreen(pin, (forgot) => {
@@ -205,7 +312,6 @@ async function startApp() {
     return;
   }
 
-  // PIN check
   const pin = getPIN();
   if (pin) {
     showPINScreen(pin, (forgot) => {
@@ -222,30 +328,25 @@ async function startApp() {
 }
 
 function continueAfterPin() {
-  // Subscribe to state changes → re-render current tab
   subscribe((state) => {
     if (state.cargado) renderTab(state.tab);
   });
 
-  // Hash routing
   window.addEventListener('hashchange', handleRoute);
   handleRoute();
-
-  // Daily snapshot
   maybeAutoSnapshot();
 
-  // Notifications (check once per day)
   const state = getState();
   verificarAlertas(state);
+
+  initCommandPalette();
 }
 
-// ── Theme toggle ──────────────────────────────────────────────────────────────
+// ── Theme + DOMContentLoaded ──────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   const tema = getTheme();
   applyTheme(tema);
-
-  // Icons in nav (rendered statically in HTML but need SVG)
   renderIcons();
 
   document.getElementById('tema-btn').addEventListener('click', () => {
@@ -257,7 +358,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('ayuda-btn').addEventListener('click', () => showHelp());
 
-  // Activation check then start
   if (!checkActivation()) return;
   startApp();
 });
